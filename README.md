@@ -18,9 +18,9 @@ snowflake-ml-estimator/
 ├── README.md                 # This file
 ├── requirements.txt          # Python dependencies
 ├── .gitignore               # Git ignore patterns
+├── Estimator_Trainer.ipynb  # Main benchmarking notebook (root for Snowflake compatibility)
 │
-├── notebooks/               # Jupyter/Snowflake notebooks
-│   └── benchmark_runner.ipynb   # Main benchmarking notebook
+├── data/                    # Data files (gitignored)
 │
 ├── streamlit/               # Streamlit dashboard app
 │   ├── app.py              # Main Streamlit application
@@ -29,6 +29,8 @@ snowflake-ml-estimator/
 └── src/                    # Shared Python utilities
     └── __init__.py
 ```
+
+> **Note**: The notebook is in the root directory due to Snowflake Notebooks' requirement that notebooks reside at the top level.
 
 ## 🚀 Quick Start
 
@@ -54,12 +56,12 @@ snowflake-ml-estimator/
    ```
 
 3. **Upload notebook to Snowflake**
-   - Upload `notebooks/benchmark_runner.ipynb` to your Snowflake account
+   - Upload `Estimator_Trainer.ipynb` to your Snowflake account
    - Run cells sequentially to set up tables and compute pools
 
 ### Running Benchmarks
 
-1. Open `benchmark_runner.ipynb` in Snowflake Notebooks
+1. Open `Estimator_Trainer.ipynb` in Snowflake Notebooks
 2. Configure parameters in the **CENTRALIZED CONFIGURATION** cell:
    ```python
    MAX_COMBINATIONS_TO_RUN = 50    # Limit runs for testing
