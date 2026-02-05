@@ -8,9 +8,45 @@ Usage:
     from src.config import BenchmarkConfig
     config = BenchmarkConfig()
     print(config.grid_pools)
+
+Environment Variable Overrides:
+    ML_MAX_COMBINATIONS=100      # Override max combinations
+    ML_JOB_TIMEOUT=3000          # Override timeout in seconds
+    ML_RUNS_PER_COMBO=3          # Override runs per combination
+    ML_DATA_TABLE=MY_TABLE       # Override data table name
+    ML_RESULTS_TABLE=MY_RESULTS  # Override results table name
 """
+import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TypeVar, Callable
+
+T = TypeVar("T")
+
+
+def env_or_default(key: str, default: T, parser: Callable[[str], T] = str) -> T:
+    """
+    Get value from environment variable, or fall back to default.
+    
+    Args:
+        key: Environment variable name
+        default: Default value if env var not set
+        parser: Function to convert string to desired type
+        
+    Returns:
+        Parsed env var value, or default
+        
+    Example:
+        timeout = env_or_default("ML_TIMEOUT", 1500, int)
+    """
+    value = os.environ.get(key)
+    if value is None:
+        return default
+    if value.lower() in ("none", "null", ""):
+        return None
+    try:
+        return parser(value)
+    except (ValueError, TypeError):
+        return default
 
 
 @dataclass
@@ -23,14 +59,26 @@ class BenchmarkConfig:
     - Default values that can be overridden
     - Easy serialization if needed later
     - Immutable-ish structure (we know what's configurable)
+    
+    Environment variables override defaults when set.
     """
     
-    max_combinations: Optional[int] = 50
-    job_timeout_seconds: int = 1500
-    runs_per_combination: int = 5
+    max_combinations: Optional[int] = field(
+        default_factory=lambda: env_or_default("ML_MAX_COMBINATIONS", 50, int)
+    )
+    job_timeout_seconds: int = field(
+        default_factory=lambda: env_or_default("ML_JOB_TIMEOUT", 1500, int)
+    )
+    runs_per_combination: int = field(
+        default_factory=lambda: env_or_default("ML_RUNS_PER_COMBO", 5, int)
+    )
     
-    data_table_name: str = "BENCHMARK_RAW_DATA"
-    results_table_name: str = "ML_BENCHMARK_RESULTS"
+    data_table_name: str = field(
+        default_factory=lambda: env_or_default("ML_DATA_TABLE", "BENCHMARK_RAW_DATA")
+    )
+    results_table_name: str = field(
+        default_factory=lambda: env_or_default("ML_RESULTS_TABLE", "ML_BENCHMARK_RESULTS")
+    )
     
     num_total_features: int = 100
     
