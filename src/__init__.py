@@ -15,5 +15,19 @@ Usage:
 __version__ = "0.1.0"
 
 from src.config import BenchmarkConfig, DEFAULT_CONFIG
+from src.data_generator import (
+    generate_classification_data,
+    save_to_snowflake,
+    to_dataframe,
+    get_memory_footprint_gb,
+)
 
-__all__ = ["BenchmarkConfig", "DEFAULT_CONFIG", "__version__"]
+__all__ = [
+    "BenchmarkConfig",
+    "DEFAULT_CONFIG",
+    "generate_classification_data",
+    "save_to_snowflake",
+    "to_dataframe",
+    "get_memory_footprint_gb",
+    "__version__",
+]
