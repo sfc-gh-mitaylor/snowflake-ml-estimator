@@ -2,11 +2,18 @@
 """
 Shared Python utilities for the ML Estimator project.
 
-This module can contain:
-- Common configuration loading
-- Snowflake connection helpers
-- Shared data processing functions
-- Model serialization utilities
+Usage:
+    from src import BenchmarkConfig, DEFAULT_CONFIG
+    
+    # Use defaults
+    print(DEFAULT_CONFIG.grid_pools)
+    
+    # Or customize
+    my_config = BenchmarkConfig(max_combinations=100)
 """
 
 __version__ = "0.1.0"
+
+from src.config import BenchmarkConfig, DEFAULT_CONFIG
+
+__all__ = ["BenchmarkConfig", "DEFAULT_CONFIG", "__version__"]
