@@ -21,6 +21,7 @@ from src.data_generator import (
     to_dataframe,
     get_memory_footprint_gb,
 )
+from src.estimators import EstimatorFactory, DEFAULT_FACTORY
 
 __all__ = [
     "BenchmarkConfig",
@@ -29,5 +30,7 @@ __all__ = [
     "save_to_snowflake",
     "to_dataframe",
     "get_memory_footprint_gb",
+    "EstimatorFactory",
+    "DEFAULT_FACTORY",
     "__version__",
 ]

@@ -1,0 +1,112 @@
+# ML Estimator Configuration
+# 
+# Define all available estimators and their parameters here.
+# The factory reads this file and instantiates models on demand.
+#
+# Structure:
+#   name:
+#     module: python.module.path
+#     class: ClassName
+#     params: {key: value pairs}
+#     row_limit: (optional) max rows this model can handle
+
+estimators:
+  # --- Gradient Boosting (Fast, Scalable) ---
+  GradientBoostingClassifier:
+    module: sklearn.ensemble
+    class: GradientBoostingClassifier
+    params:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 3
+      subsample: 0.8
+      random_state: 42
+
+  # --- AdaBoost ---
+  AdaBoostClassifier:
+    module: sklearn.ensemble
+    class: AdaBoostClassifier
+    params:
+      n_estimators: 50
+      learning_rate: 1.0
+      random_state: 42
+    # Note: Uses DecisionTreeClassifier(max_depth=1) as default base estimator
+
+  # --- Logistic Regression (Linear, Fast) ---
+  LogisticRegression:
+    module: sklearn.linear_model
+    class: LogisticRegression
+    params:
+      penalty: l2
+      C: 1.0
+      solver: liblinear
+      max_iter: 1000
+      random_state: 42
+      n_jobs: -1
+
+  # --- SVM (Slow on large data) ---
+  SVC:
+    module: sklearn.svm
+    class: SVC
+    params:
+      C: 1.0
+      kernel: rbf
+      gamma: scale
+      probability: true
+      random_state: 42
+    row_limit: 100000  # O(n²) complexity - cap at 100k rows
+
+  # --- K-Nearest Neighbors ---
+  KNeighborsClassifier:
+    module: sklearn.neighbors
+    class: KNeighborsClassifier
+    params:
+      n_neighbors: 5
+      weights: uniform
+      n_jobs: -1
+
+  # --- Naive Bayes (Simple, Fast) ---
+  GaussianNB:
+    module: sklearn.naive_bayes
+    class: GaussianNB
+    params: {}
+
+  # --- LightGBM (High Performance) ---
+  LGBMClassifier:
+    module: lightgbm
+    class: LGBMClassifier
+    params:
+      n_estimators: 150
+      learning_rate: 0.05
+      num_leaves: 31
+      max_depth: -1
+      n_jobs: -1
+      random_state: 42
+      verbose: -1
+
+  # --- XGBoost (High Performance) ---
+  XGBClassifier:
+    module: xgboost
+    class: XGBClassifier
+    params:
+      n_estimators: 150
+      learning_rate: 0.05
+      max_depth: 5
+      subsample: 0.8
+      colsample_bytree: 0.8
+      eval_metric: logloss
+      n_jobs: -1
+      random_state: 42
+
+  # --- Random Forest (commented out in original, but available) ---
+  RandomForestClassifier:
+    module: sklearn.ensemble
+    class: RandomForestClassifier
+    params:
+      n_estimators: 200
+      max_depth: 20
+      min_samples_leaf: 5
+      max_features: sqrt
+      n_jobs: -1
+      random_state: 42
+    enabled: false  # Set to true to include in default runs
