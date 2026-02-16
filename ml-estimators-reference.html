@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Estimators Quick Reference</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #38bdf8;
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --green: #4ade80;
+            --yellow: #fbbf24;
+            --red: #f87171;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        h1 {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+            font-size: 2rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: var(--muted);
+            margin-bottom: 2rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border-left: 4px solid var(--accent);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+        }
+        .card h2 {
+            color: var(--accent);
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .badge {
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .fast { background: var(--green); color: #000; }
+        .moderate { background: var(--yellow); color: #000; }
+        .slow { background: var(--red); color: #000; }
+        .module {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 1rem;
+        }
+        .params {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .params h3 {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        .param-grid {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.25rem 1rem;
+            font-size: 0.9rem;
+        }
+        .param-key {
+            font-family: monospace;
+            color: var(--accent);
+        }
+        .param-val {
+            font-family: monospace;
+            color: var(--text);
+        }
+        .notes {
+            font-size: 0.85rem;
+            color: var(--muted);
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 1rem;
+            margin-top: 1rem;
+        }
+        .limit {
+            display: inline-block;
+            background: rgba(248, 113, 113, 0.2);
+            color: var(--red);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+        }
+        .category {
+            grid-column: 1 / -1;
+            color: var(--muted);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            padding: 1rem 0 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .disabled {
+            opacity: 0.6;
+            border-left-color: var(--muted);
+        }
+        .disabled h2::after {
+            content: 'DISABLED';
+            font-size: 0.6rem;
+            background: var(--muted);
+            color: var(--bg);
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>ML Estimators Quick Reference</h1>
+    <p class="subtitle">sklearn, XGBoost, LightGBM classifiers with tuned defaults</p>
+    
+    <div class="grid">
+        <div class="category">Gradient Boosting (High Performance)</div>
+        
+        <div class="card">
+            <h2>XGBClassifier <span class="badge fast">Fast</span></h2>
+            <div class="module">xgboost.XGBClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_estimators</span><span class="param-val">150</span>
+                    <span class="param-key">learning_rate</span><span class="param-val">0.05</span>
+                    <span class="param-key">max_depth</span><span class="param-val">5</span>
+                    <span class="param-key">subsample</span><span class="param-val">0.8</span>
+                    <span class="param-key">colsample_bytree</span><span class="param-val">0.8</span>
+                    <span class="param-key">eval_metric</span><span class="param-val">logloss</span>
+                </div>
+            </div>
+            <div class="notes">Industry standard. Great for tabular data. Handles missing values natively.</div>
+        </div>
+
+        <div class="card">
+            <h2>LGBMClassifier <span class="badge fast">Fast</span></h2>
+            <div class="module">lightgbm.LGBMClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_estimators</span><span class="param-val">150</span>
+                    <span class="param-key">learning_rate</span><span class="param-val">0.05</span>
+                    <span class="param-key">num_leaves</span><span class="param-val">31</span>
+                    <span class="param-key">max_depth</span><span class="param-val">-1 (unlimited)</span>
+                    <span class="param-key">verbose</span><span class="param-val">-1 (silent)</span>
+                </div>
+            </div>
+            <div class="notes">Fastest gradient boosting. Leaf-wise growth. Best for large datasets.</div>
+        </div>
+
+        <div class="card">
+            <h2>GradientBoostingClassifier <span class="badge moderate">Moderate</span></h2>
+            <div class="module">sklearn.ensemble.GradientBoostingClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_estimators</span><span class="param-val">100</span>
+                    <span class="param-key">learning_rate</span><span class="param-val">0.1</span>
+                    <span class="param-key">max_depth</span><span class="param-val">3</span>
+                    <span class="param-key">subsample</span><span class="param-val">0.8</span>
+                </div>
+            </div>
+            <div class="notes">Pure sklearn. No external deps. Single-threaded but reliable.</div>
+        </div>
+
+        <div class="category">Ensemble Methods</div>
+
+        <div class="card">
+            <h2>AdaBoostClassifier <span class="badge fast">Fast</span></h2>
+            <div class="module">sklearn.ensemble.AdaBoostClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_estimators</span><span class="param-val">50</span>
+                    <span class="param-key">learning_rate</span><span class="param-val">1.0</span>
+                </div>
+            </div>
+            <div class="notes">Uses DecisionTree(max_depth=1) as base. Good for simple patterns.</div>
+        </div>
+
+        <div class="card disabled">
+            <h2>RandomForestClassifier <span class="badge moderate">Moderate</span></h2>
+            <div class="module">sklearn.ensemble.RandomForestClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_estimators</span><span class="param-val">200</span>
+                    <span class="param-key">max_depth</span><span class="param-val">20</span>
+                    <span class="param-key">min_samples_leaf</span><span class="param-val">5</span>
+                    <span class="param-key">max_features</span><span class="param-val">sqrt</span>
+                </div>
+            </div>
+            <div class="notes">Parallelizable. Robust to overfitting. Set enabled: true to activate.</div>
+        </div>
+
+        <div class="category">Linear Models</div>
+
+        <div class="card">
+            <h2>LogisticRegression <span class="badge fast">Fast</span></h2>
+            <div class="module">sklearn.linear_model.LogisticRegression</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">penalty</span><span class="param-val">l2</span>
+                    <span class="param-key">C</span><span class="param-val">1.0</span>
+                    <span class="param-key">solver</span><span class="param-val">liblinear</span>
+                    <span class="param-key">max_iter</span><span class="param-val">1000</span>
+                </div>
+            </div>
+            <div class="notes">Baseline model. Interpretable coefficients. Scale features first!</div>
+        </div>
+
+        <div class="category">Distance-Based</div>
+
+        <div class="card">
+            <h2>KNeighborsClassifier <span class="badge moderate">Moderate</span></h2>
+            <div class="module">sklearn.neighbors.KNeighborsClassifier</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">n_neighbors</span><span class="param-val">5</span>
+                    <span class="param-key">weights</span><span class="param-val">uniform</span>
+                </div>
+            </div>
+            <div class="notes">Non-parametric. Memory-intensive at inference. Scale features!</div>
+        </div>
+
+        <div class="card">
+            <h2>SVC <span class="badge slow">Slow</span></h2>
+            <div class="module">sklearn.svm.SVC</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">C</span><span class="param-val">1.0</span>
+                    <span class="param-key">kernel</span><span class="param-val">rbf</span>
+                    <span class="param-key">gamma</span><span class="param-val">scale</span>
+                    <span class="param-key">probability</span><span class="param-val">true</span>
+                </div>
+            </div>
+            <div class="notes">
+                O(n²) complexity. Best for small datasets with clear margins.
+                <div class="limit">Row Limit: 100,000</div>
+            </div>
+        </div>
+
+        <div class="category">Probabilistic</div>
+
+        <div class="card">
+            <h2>GaussianNB <span class="badge fast">Fast</span></h2>
+            <div class="module">sklearn.naive_bayes.GaussianNB</div>
+            <div class="params">
+                <h3>Parameters</h3>
+                <div class="param-grid">
+                    <span class="param-key">—</span><span class="param-val">No parameters</span>
+                </div>
+            </div>
+            <div class="notes">Assumes feature independence. Great baseline. Works with small data.</div>
+        </div>
+    </div>
+</body>
+</html>

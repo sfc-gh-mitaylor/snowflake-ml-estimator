@@ -7,14 +7,20 @@
 #   name:
 #     module: python.module.path
 #     class: ClassName
+#     task_type: classification | regression | clustering
 #     params: {key: value pairs}
 #     row_limit: (optional) max rows this model can handle
 
 estimators:
+  # =============================================================================
+  # CLASSIFICATION MODELS
+  # =============================================================================
+  
   # --- Gradient Boosting (Fast, Scalable) ---
   GradientBoostingClassifier:
     module: sklearn.ensemble
     class: GradientBoostingClassifier
+    task_type: classification
     params:
       n_estimators: 100
       learning_rate: 0.1
@@ -26,16 +32,17 @@ estimators:
   AdaBoostClassifier:
     module: sklearn.ensemble
     class: AdaBoostClassifier
+    task_type: classification
     params:
       n_estimators: 50
       learning_rate: 1.0
       random_state: 42
-    # Note: Uses DecisionTreeClassifier(max_depth=1) as default base estimator
 
   # --- Logistic Regression (Linear, Fast) ---
   LogisticRegression:
     module: sklearn.linear_model
     class: LogisticRegression
+    task_type: classification
     params:
       penalty: l2
       C: 1.0
@@ -48,18 +55,20 @@ estimators:
   SVC:
     module: sklearn.svm
     class: SVC
+    task_type: classification
     params:
       C: 1.0
       kernel: rbf
       gamma: scale
       probability: true
       random_state: 42
-    row_limit: 100000  # O(n²) complexity - cap at 100k rows
+    row_limit: 100000
 
   # --- K-Nearest Neighbors ---
   KNeighborsClassifier:
     module: sklearn.neighbors
     class: KNeighborsClassifier
+    task_type: classification
     params:
       n_neighbors: 5
       weights: uniform
@@ -69,12 +78,14 @@ estimators:
   GaussianNB:
     module: sklearn.naive_bayes
     class: GaussianNB
+    task_type: classification
     params: {}
 
   # --- LightGBM (High Performance) ---
   LGBMClassifier:
     module: lightgbm
     class: LGBMClassifier
+    task_type: classification
     params:
       n_estimators: 150
       learning_rate: 0.05
@@ -88,6 +99,7 @@ estimators:
   XGBClassifier:
     module: xgboost
     class: XGBClassifier
+    task_type: classification
     params:
       n_estimators: 150
       learning_rate: 0.05
@@ -98,15 +110,134 @@ estimators:
       n_jobs: -1
       random_state: 42
 
-  # --- Random Forest (commented out in original, but available) ---
+  # --- Random Forest ---
   RandomForestClassifier:
     module: sklearn.ensemble
     class: RandomForestClassifier
+    task_type: classification
     params:
-      n_estimators: 200
-      max_depth: 20
+      n_estimators: 100
+      max_depth: 15
       min_samples_leaf: 5
       max_features: sqrt
       n_jobs: -1
       random_state: 42
-    enabled: false  # Set to true to include in default runs
+
+  # =============================================================================
+  # REGRESSION MODELS
+  # =============================================================================
+  
+  RandomForestRegressor:
+    module: sklearn.ensemble
+    class: RandomForestRegressor
+    task_type: regression
+    params:
+      n_estimators: 100
+      max_depth: 15
+      min_samples_leaf: 5
+      n_jobs: -1
+      random_state: 42
+
+  GradientBoostingRegressor:
+    module: sklearn.ensemble
+    class: GradientBoostingRegressor
+    task_type: regression
+    params:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 3
+      subsample: 0.8
+      random_state: 42
+
+  XGBRegressor:
+    module: xgboost
+    class: XGBRegressor
+    task_type: regression
+    params:
+      n_estimators: 150
+      learning_rate: 0.05
+      max_depth: 5
+      subsample: 0.8
+      colsample_bytree: 0.8
+      n_jobs: -1
+      random_state: 42
+
+  LGBMRegressor:
+    module: lightgbm
+    class: LGBMRegressor
+    task_type: regression
+    params:
+      n_estimators: 150
+      learning_rate: 0.05
+      num_leaves: 31
+      max_depth: -1
+      n_jobs: -1
+      random_state: 42
+      verbose: -1
+
+  LinearRegression:
+    module: sklearn.linear_model
+    class: LinearRegression
+    task_type: regression
+    params:
+      n_jobs: -1
+
+  Ridge:
+    module: sklearn.linear_model
+    class: Ridge
+    task_type: regression
+    params:
+      alpha: 1.0
+      random_state: 42
+
+  SVR:
+    module: sklearn.svm
+    class: SVR
+    task_type: regression
+    params:
+      C: 1.0
+      kernel: rbf
+      gamma: scale
+    row_limit: 100000
+
+  # =============================================================================
+  # CLUSTERING MODELS
+  # =============================================================================
+  
+  KMeans:
+    module: sklearn.cluster
+    class: KMeans
+    task_type: clustering
+    params:
+      n_clusters: 8
+      n_init: 10
+      max_iter: 300
+      random_state: 42
+
+  MiniBatchKMeans:
+    module: sklearn.cluster
+    class: MiniBatchKMeans
+    task_type: clustering
+    params:
+      n_clusters: 8
+      batch_size: 1024
+      n_init: 10
+      random_state: 42
+
+  DBSCAN:
+    module: sklearn.cluster
+    class: DBSCAN
+    task_type: clustering
+    params:
+      eps: 0.5
+      min_samples: 5
+    row_limit: 100000
+
+  AgglomerativeClustering:
+    module: sklearn.cluster
+    class: AgglomerativeClustering
+    task_type: clustering
+    params:
+      n_clusters: 8
+      linkage: ward
+    row_limit: 50000

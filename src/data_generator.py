@@ -15,8 +15,8 @@ Usage:
 """
 import numpy as np
 import pandas as pd
-from sklearn.datasets import make_classification
-from typing import Tuple, Optional
+from sklearn.datasets import make_classification, make_regression, make_blobs
+from typing import Tuple, Optional, Literal
 
 
 def generate_classification_data(
@@ -29,17 +29,6 @@ def generate_classification_data(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate synthetic classification data for benchmarking.
-    
-    Args:
-        n_samples: Number of rows to generate
-        n_features: Number of feature columns
-        n_informative: Features with real predictive power
-        n_redundant: Features that are combinations of informative ones
-        n_classes: Number of target classes (2 = binary)
-        random_state: Seed for reproducibility
-        
-    Returns:
-        Tuple of (X, y) where X is features array, y is target array
     """
     X, y = make_classification(
         n_samples=n_samples,
@@ -51,6 +40,59 @@ def generate_classification_data(
         shuffle=True,
     )
     return X, y
+
+
+def generate_regression_data(
+    n_samples: int = 1_000_000,
+    n_features: int = 100,
+    n_informative: int = 80,
+    noise: float = 0.1,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate synthetic regression data for benchmarking."""
+    X, y = make_regression(
+        n_samples=n_samples,
+        n_features=n_features,
+        n_informative=n_informative,
+        noise=noise,
+        random_state=random_state,
+        shuffle=True,
+    )
+    return X, y
+
+
+def generate_clustering_data(
+    n_samples: int = 1_000_000,
+    n_features: int = 100,
+    n_clusters: int = 8,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate synthetic clustering data for benchmarking."""
+    X, y = make_blobs(
+        n_samples=n_samples,
+        n_features=n_features,
+        centers=n_clusters,
+        random_state=random_state,
+        shuffle=True,
+    )
+    return X, y
+
+
+def generate_data(
+    task_type: Literal["classification", "regression", "clustering"],
+    n_samples: int = 1_000_000,
+    n_features: int = 100,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate synthetic data for the specified task type."""
+    if task_type == "classification":
+        return generate_classification_data(n_samples, n_features, random_state=random_state)
+    elif task_type == "regression":
+        return generate_regression_data(n_samples, n_features, random_state=random_state)
+    elif task_type == "clustering":
+        return generate_clustering_data(n_samples, n_features, random_state=random_state)
+    else:
+        raise ValueError(f"Unknown task type: {task_type}")
 
 
 def to_dataframe(X: np.ndarray, y: np.ndarray) -> pd.DataFrame:

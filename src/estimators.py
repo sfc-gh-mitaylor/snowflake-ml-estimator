@@ -98,6 +98,18 @@ class EstimatorFactory:
         spec = self.get_spec(name)
         return spec.get("row_limit")
     
+    def get_task_type(self, name: str) -> str:
+        """Get task type for an estimator (classification, regression, clustering)."""
+        spec = self.get_spec(name)
+        return spec.get("task_type", "classification")
+    
+    def list_by_task_type(self, task_type: str) -> List[str]:
+        """List estimators filtered by task type."""
+        return [
+            name for name in self.list_available()
+            if self.get_task_type(name) == task_type
+        ]
+    
     def create(self, name: str, **override_params) -> Any:
         """
         Create an estimator instance by name.

@@ -1,299 +1,232 @@
 """
-Snowflake ML Runtime Estimator - Streamlit Dashboard
+ML Cost Estimator - Streamlit in Snowflake App
 
-This app provides an interactive dashboard for:
-- Viewing benchmark results
-- Exploring duration patterns across models, pools, and data sizes
-- Making runtime predictions for new configurations
-- Monitoring grid coverage
+Predicts training time and credit cost for ML workloads.
 """
-
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from snowflake.snowpark.context import get_active_session
 
-# Local imports
-from config import (
-    RESULTS_TABLE, 
-    MODELS_DISPLAY_ORDER, 
-    POOL_DISPLAY_NAMES,
-    CHART_COLORS
-)
+st.set_page_config(page_title="ML Cost Estimator", page_icon="💰", layout="wide")
 
-# =============================================================================
-# Page Configuration
-# =============================================================================
-st.set_page_config(
-    page_title="ML Runtime Estimator",
-    page_icon="⏱️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+CREDIT_RATES = {
+    "CPU_X64_XS_TEST": 0.06,
+    "CPU_X64_S_TEST": 0.12,
+    "CPU_X64_M_TEST": 0.24,
+    "CPU_X64_SL_TEST": 0.48,
+    "GPU_NV_S": 0.60,
+    "GPU_NV_M": 1.20,
+}
 
-# =============================================================================
-# Snowflake Connection
-# =============================================================================
+POOL_DISPLAY = {
+    "CPU_X64_XS_TEST": "CPU XS (0.06 cr/hr)",
+    "CPU_X64_S_TEST": "CPU S (0.12 cr/hr)",
+    "CPU_X64_M_TEST": "CPU M (0.24 cr/hr)",
+    "CPU_X64_SL_TEST": "CPU SL (0.48 cr/hr)",
+    "GPU_NV_S": "GPU S (0.60 cr/hr)",
+    "GPU_NV_M": "GPU M (1.20 cr/hr)",
+}
+
+
 @st.cache_resource
-def get_snowflake_connection():
-    """Establish Snowflake connection using Streamlit secrets."""
-    # TODO: Implement Snowflake connection
-    # Option 1: Use st.connection (Streamlit native)
-    # Option 2: Use snowflake-connector-python
-    # Option 3: Use snowflake-snowpark-python
-    
-    # For now, return None - implement based on your setup
-    st.warning("⚠️ Snowflake connection not configured. Using sample data.")
-    return None
+def get_session():
+    return get_active_session()
 
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def load_benchmark_data(_conn):
-    """Load benchmark results from Snowflake."""
-    if _conn is None:
-        # Return sample data for development
-        return _generate_sample_data()
-    
-    # TODO: Query actual data
-    # query = f"SELECT * FROM {RESULTS_TABLE} WHERE DURATION_SECONDS > 0"
-    # return pd.read_sql(query, _conn)
-    return _generate_sample_data()
+@st.cache_data(ttl=300)
+def load_benchmark_data():
+    session = get_session()
+    return session.table("TEMP.MITAYLOR.ML_BENCHMARK_RESULTS").to_pandas()
 
 
-def _generate_sample_data():
-    """Generate sample data for development/demo."""
-    np.random.seed(42)
-    
-    models = ['LogisticRegression', 'GradientBoostingClassifier', 'XGBClassifier', 
-              'LGBMClassifier', 'AdaBoostClassifier', 'GaussianNB', 'KNeighborsClassifier']
-    pools = ['CPU_X64_XS_TEST', 'CPU_X64_S_TEST', 'CPU_X64_M_TEST', 'CPU_X64_SL_TEST']
-    cols = [25, 50, 75, 100]
-    rows = [50000, 250000, 450000, 650000, 850000]
-    
-    data = []
-    for model in models:
-        base_time = np.random.uniform(0.5, 10)  # Base time varies by model
-        for pool in pools:
-            pool_factor = {'CPU_X64_XS_TEST': 1.5, 'CPU_X64_S_TEST': 1.2, 
-                          'CPU_X64_M_TEST': 1.0, 'CPU_X64_SL_TEST': 0.8}[pool]
-            for n_cols in cols:
-                for n_rows in rows:
-                    for run_id in range(1, 6):
-                        duration = base_time * pool_factor * (n_rows / 50000) * (n_cols / 25)
-                        duration *= np.random.uniform(0.9, 1.1)  # Add noise
-                        data.append({
-                            'MODEL_CLASS': model,
-                            'COMPUTE_POOL': pool,
-                            'N_COLS_SAMPLED': n_cols,
-                            'N_ROWS_SAMPLED': n_rows,
-                            'RUN_ID': run_id,
-                            'DURATION_SECONDS': duration,
-                            'START_TIMESTAMP': pd.Timestamp.now().timestamp()
-                        })
-    
-    return pd.DataFrame(data)
+@st.cache_resource
+def load_model():
+    from snowflake.ml.registry import Registry
+    session = get_session()
+    registry = Registry(session)
+    return registry.get_model("ML_COST_ESTIMATOR").default
 
 
-# =============================================================================
-# Sidebar
-# =============================================================================
-def render_sidebar(df):
-    """Render sidebar with filters."""
-    st.sidebar.header("🎛️ Filters")
+def get_available_options(df):
+    return {
+        "models": sorted(df["MODEL_CLASS"].unique().tolist()),
+        "task_types": sorted(df["TASK_TYPE"].unique().tolist()),
+        "pools": sorted(df["COMPUTE_POOL"].unique().tolist()),
+    }
+
+
+def predict_cost(model, model_class, task_type, pool, n_cols, n_rows):
+    try:
+        result = model.predict(model_class, task_type, pool, n_cols, n_rows)
+        return result
+    except Exception as e:
+        return {"error": str(e), "duration_seconds": None, "estimated_credits": None}
+
+
+def retrain_model():
+    from snowflake.ml.registry import Registry
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import r2_score, mean_absolute_error
+    import numpy as np
     
-    # Model filter
-    models = st.sidebar.multiselect(
-        "Models",
-        options=sorted(df['MODEL_CLASS'].unique()),
-        default=sorted(df['MODEL_CLASS'].unique())
+    session = get_session()
+    df = session.table("TEMP.MITAYLOR.ML_BENCHMARK_RESULTS").to_pandas()
+    df = df[df["DURATION_SECONDS"] > 0].copy()
+    
+    le_model = LabelEncoder()
+    le_pool = LabelEncoder()
+    le_task = LabelEncoder()
+    
+    df["MODEL_ENCODED"] = le_model.fit_transform(df["MODEL_CLASS"])
+    df["POOL_ENCODED"] = le_pool.fit_transform(df["COMPUTE_POOL"])
+    df["TASK_ENCODED"] = le_task.fit_transform(df["TASK_TYPE"])
+    
+    feature_cols = ["MODEL_ENCODED", "POOL_ENCODED", "TASK_ENCODED", 
+                    "N_COLS_SAMPLED", "N_ROWS_SAMPLED"]
+    X = df[feature_cols]
+    y = df["DURATION_SECONDS"]
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    
+    model = RandomForestRegressor(n_estimators=100, max_depth=15, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    
+    y_pred = model.predict(X_test)
+    metrics = {
+        "r2": r2_score(y_test, y_pred),
+        "mae": mean_absolute_error(y_test, y_pred),
+    }
+    
+    return metrics
+
+
+st.title("💰 ML Cost Estimator")
+st.markdown("Predict training time and credit cost for Snowflake ML workloads")
+
+try:
+    df = load_benchmark_data()
+    options = get_available_options(df)
+except Exception as e:
+    st.error(f"Failed to load benchmark data: {e}")
+    st.stop()
+
+col1, col2 = st.columns([2, 1])
+
+with col1:
+    st.subheader("Configuration")
+    
+    task_type = st.selectbox("Task Type", options["task_types"], index=0)
+    
+    task_models = df[df["TASK_TYPE"] == task_type]["MODEL_CLASS"].unique().tolist()
+    model_class = st.selectbox("Model", sorted(task_models))
+    
+    pool_options = list(POOL_DISPLAY.keys())
+    pool_labels = [POOL_DISPLAY[p] for p in pool_options]
+    pool_idx = st.selectbox("Compute Pool", range(len(pool_options)), 
+                            format_func=lambda i: pool_labels[i])
+    compute_pool = pool_options[pool_idx]
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        n_rows = st.number_input("Rows", min_value=1000, max_value=10_000_000, 
+                                  value=100_000, step=10_000, format="%d")
+    with c2:
+        n_cols = st.number_input("Columns", min_value=5, max_value=500, 
+                                  value=50, step=5)
+
+with col2:
+    st.subheader("Prediction")
+    
+    if st.button("Estimate Cost", type="primary", use_container_width=True):
+        try:
+            model = load_model()
+            result = predict_cost(model, model_class, task_type, compute_pool, n_cols, n_rows)
+            
+            if result.get("error"):
+                st.error(f"Prediction failed: {result['error']}")
+            else:
+                duration = result["duration_seconds"]
+                credits = result["estimated_credits"]
+                
+                st.metric("Duration", f"{duration:.1f}s" if duration < 60 else f"{duration/60:.1f}m")
+                st.metric("Credits", f"{credits:.4f}")
+                
+                rate = CREDIT_RATES.get(compute_pool, 0.12)
+                st.caption(f"Rate: {rate} credits/hr")
+        except Exception as e:
+            st.error(f"Model not available: {e}")
+            st.info("Using fallback estimation from historical data...")
+            
+            subset = df[
+                (df["MODEL_CLASS"] == model_class) & 
+                (df["COMPUTE_POOL"] == compute_pool) &
+                (df["DURATION_SECONDS"] > 0)
+            ]
+            
+            if len(subset) > 0:
+                avg_dur_per_row = subset["DURATION_SECONDS"].mean() / subset["N_ROWS_SAMPLED"].mean()
+                est_duration = avg_dur_per_row * n_rows
+                rate = CREDIT_RATES.get(compute_pool, 0.12)
+                est_credits = (est_duration / 3600) * rate
+                
+                st.metric("Est. Duration", f"{est_duration:.1f}s")
+                st.metric("Est. Credits", f"{est_credits:.4f}")
+                st.caption("⚠️ Rough estimate from historical average")
+            else:
+                st.warning("No historical data for this configuration")
+
+st.divider()
+
+tab1, tab2, tab3 = st.tabs(["📊 Data Overview", "📈 Analysis", "⚙️ Admin"])
+
+with tab1:
+    st.subheader("Benchmark Coverage")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Runs", f"{len(df):,}")
+    c2.metric("Unique Configs", f"{df.groupby(['MODEL_CLASS','COMPUTE_POOL','N_ROWS_SAMPLED']).ngroups:,}")
+    c3.metric("Success Rate", f"{(df['DURATION_SECONDS'] > 0).mean():.1%}")
+    c4.metric("Models Tested", f"{df['MODEL_CLASS'].nunique()}")
+    
+    st.dataframe(
+        df.groupby(["TASK_TYPE", "MODEL_CLASS"])
+        .agg({"DURATION_SECONDS": ["count", "mean", "std"]})
+        .round(2),
+        use_container_width=True
     )
-    
-    # Pool filter
-    pools = st.sidebar.multiselect(
-        "Compute Pools",
-        options=sorted(df['COMPUTE_POOL'].unique()),
-        default=sorted(df['COMPUTE_POOL'].unique())
-    )
-    
-    # Row count filter
-    min_rows, max_rows = st.sidebar.slider(
-        "Row Count Range",
-        min_value=int(df['N_ROWS_SAMPLED'].min()),
-        max_value=int(df['N_ROWS_SAMPLED'].max()),
-        value=(int(df['N_ROWS_SAMPLED'].min()), int(df['N_ROWS_SAMPLED'].max()))
-    )
-    
-    return models, pools, min_rows, max_rows
 
-
-# =============================================================================
-# Main Dashboard
-# =============================================================================
-def main():
-    st.title("⏱️ ML Runtime Estimator Dashboard")
-    st.markdown("Benchmark analysis and runtime predictions for Snowflake ML workloads")
+with tab2:
+    st.subheader("Duration by Configuration")
     
-    # Load data
-    conn = get_snowflake_connection()
-    df = load_benchmark_data(conn)
+    import plotly.express as px
     
-    if df is None or len(df) == 0:
-        st.error("No benchmark data available. Run the benchmark notebook first.")
-        return
+    success_df = df[df["DURATION_SECONDS"] > 0]
     
-    # Sidebar filters
-    models, pools, min_rows, max_rows = render_sidebar(df)
-    
-    # Apply filters
-    mask = (
-        (df['MODEL_CLASS'].isin(models)) &
-        (df['COMPUTE_POOL'].isin(pools)) &
-        (df['N_ROWS_SAMPLED'] >= min_rows) &
-        (df['N_ROWS_SAMPLED'] <= max_rows)
-    )
-    filtered_df = df[mask]
-    
-    # Metrics row
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Runs", f"{len(filtered_df):,}")
-    with col2:
-        st.metric("Unique Combinations", f"{filtered_df.groupby(['MODEL_CLASS', 'COMPUTE_POOL', 'N_COLS_SAMPLED', 'N_ROWS_SAMPLED']).ngroups:,}")
-    with col3:
-        st.metric("Median Duration", f"{filtered_df['DURATION_SECONDS'].median():.2f}s")
-    with col4:
-        st.metric("Max Duration", f"{filtered_df['DURATION_SECONDS'].max():.2f}s")
-    
-    st.divider()
-    
-    # Tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔍 Model Analysis", "📈 Scaling", "🎯 Predictor"])
-    
-    with tab1:
-        render_overview_tab(filtered_df)
-    
-    with tab2:
-        render_model_analysis_tab(filtered_df)
-    
-    with tab3:
-        render_scaling_tab(filtered_df)
-    
-    with tab4:
-        render_predictor_tab(df)  # Use full df for predictor
-
-
-def render_overview_tab(df):
-    """Render overview tab with summary charts."""
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Duration by Model")
-        fig = px.box(df, x='MODEL_CLASS', y='DURATION_SECONDS', 
-                     color='MODEL_CLASS', log_y=True)
-        fig.update_layout(showlegend=False, xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("Duration by Compute Pool")
-        fig = px.box(df, x='COMPUTE_POOL', y='DURATION_SECONDS',
-                     color='COMPUTE_POOL')
-        fig.update_layout(showlegend=False, xaxis_tickangle=-45)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Heatmap
-    st.subheader("Mean Duration Heatmap (Model × Pool)")
-    pivot = df.pivot_table(values='DURATION_SECONDS', index='MODEL_CLASS', 
-                           columns='COMPUTE_POOL', aggfunc='mean')
-    fig = px.imshow(pivot, text_auto='.1f', aspect='auto', color_continuous_scale='YlOrRd')
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_model_analysis_tab(df):
-    """Render model-specific analysis."""
-    selected_model = st.selectbox("Select Model", sorted(df['MODEL_CLASS'].unique()))
-    model_df = df[df['MODEL_CLASS'] == selected_model]
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader(f"{selected_model} - Duration vs Rows")
-        fig = px.scatter(model_df, x='N_ROWS_SAMPLED', y='DURATION_SECONDS',
-                        color='COMPUTE_POOL', trendline='lowess')
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader(f"{selected_model} - Duration vs Columns")
-        fig = px.scatter(model_df, x='N_COLS_SAMPLED', y='DURATION_SECONDS',
-                        color='COMPUTE_POOL', trendline='lowess')
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Statistics table
-    st.subheader(f"{selected_model} - Statistics by Pool")
-    stats = model_df.groupby('COMPUTE_POOL')['DURATION_SECONDS'].agg(['count', 'mean', 'std', 'min', 'max'])
-    stats.columns = ['Runs', 'Mean (s)', 'Std (s)', 'Min (s)', 'Max (s)']
-    st.dataframe(stats.round(2), use_container_width=True)
-
-
-def render_scaling_tab(df):
-    """Render scaling analysis."""
-    st.subheader("How Duration Scales with Data Size")
-    
-    # Group by rows and show scaling
-    scaling_df = df.groupby(['MODEL_CLASS', 'N_ROWS_SAMPLED'])['DURATION_SECONDS'].mean().reset_index()
-    
-    fig = px.line(scaling_df, x='N_ROWS_SAMPLED', y='DURATION_SECONDS',
-                  color='MODEL_CLASS', markers=True, log_y=True)
-    fig.update_layout(xaxis_title='Number of Rows', yaxis_title='Mean Duration (s, log scale)')
+    fig = px.box(success_df, x="MODEL_CLASS", y="DURATION_SECONDS", 
+                 color="TASK_TYPE", log_y=True)
+    fig.update_layout(xaxis_tickangle=-45)
     st.plotly_chart(fig, use_container_width=True)
     
-    # Scaling by columns
-    col_scaling_df = df.groupby(['MODEL_CLASS', 'N_COLS_SAMPLED'])['DURATION_SECONDS'].mean().reset_index()
-    
-    fig2 = px.line(col_scaling_df, x='N_COLS_SAMPLED', y='DURATION_SECONDS',
-                   color='MODEL_CLASS', markers=True)
-    fig2.update_layout(xaxis_title='Number of Columns', yaxis_title='Mean Duration (s)')
+    fig2 = px.scatter(success_df, x="N_ROWS_SAMPLED", y="DURATION_SECONDS",
+                      color="MODEL_CLASS", facet_col="COMPUTE_POOL", facet_col_wrap=3)
     st.plotly_chart(fig2, use_container_width=True)
 
-
-def render_predictor_tab(df):
-    """Render prediction interface."""
-    st.subheader("🎯 Runtime Predictor")
-    st.markdown("Estimate training time for a new configuration")
+with tab3:
+    st.subheader("Model Management")
     
-    col1, col2 = st.columns(2)
+    if st.button("🔄 Retrain Model", help="Retrain the cost estimator on latest data"):
+        with st.spinner("Retraining model..."):
+            try:
+                metrics = retrain_model()
+                st.success(f"Model retrained! R²={metrics['r2']:.3f}, MAE={metrics['mae']:.1f}s")
+                st.cache_resource.clear()
+            except Exception as e:
+                st.error(f"Retrain failed: {e}")
     
-    with col1:
-        model = st.selectbox("Model", sorted(df['MODEL_CLASS'].unique()), key='pred_model')
-        pool = st.selectbox("Compute Pool", sorted(df['COMPUTE_POOL'].unique()), key='pred_pool')
-    
-    with col2:
-        n_cols = st.slider("Number of Columns", 10, 200, 50)
-        n_rows = st.slider("Number of Rows", 10000, 1000000, 100000, step=10000)
-    
-    if st.button("Predict Runtime", type="primary"):
-        # Simple prediction using historical data
-        similar = df[
-            (df['MODEL_CLASS'] == model) & 
-            (df['COMPUTE_POOL'] == pool)
-        ]
-        
-        if len(similar) > 0:
-            # Basic interpolation based on data size
-            avg_per_row = similar['DURATION_SECONDS'].mean() / similar['N_ROWS_SAMPLED'].mean()
-            avg_per_col = similar['DURATION_SECONDS'].mean() / similar['N_COLS_SAMPLED'].mean()
-            
-            predicted = (avg_per_row * n_rows + avg_per_col * n_cols) / 2
-            
-            st.success(f"**Predicted Runtime: {predicted:.2f} seconds**")
-            st.caption("Note: This is a simple estimate. Train the full model in the notebook for better predictions.")
-        else:
-            st.warning("No historical data for this combination. Run benchmarks first.")
-
-
-# =============================================================================
-# Entry Point
-# =============================================================================
-if __name__ == "__main__":
-    main()
+    st.subheader("Credit Rates")
+    rates_df = pd.DataFrame([
+        {"Pool": k, "Credits/Hour": v} for k, v in CREDIT_RATES.items()
+    ])
+    st.dataframe(rates_df, use_container_width=True, hide_index=True)

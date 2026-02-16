@@ -22,6 +22,7 @@ from src.data_generator import (
     get_memory_footprint_gb,
 )
 from src.estimators import EstimatorFactory, DEFAULT_FACTORY
+from src.benchmark import BenchmarkConfig as GridConfig, BenchmarkGrid, BenchmarkResult
 
 __all__ = [
     "BenchmarkConfig",
@@ -32,5 +33,8 @@ __all__ = [
     "get_memory_footprint_gb",
     "EstimatorFactory",
     "DEFAULT_FACTORY",
+    "GridConfig",
+    "BenchmarkGrid",
+    "BenchmarkResult",
     "__version__",
 ]

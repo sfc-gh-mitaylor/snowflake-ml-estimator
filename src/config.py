@@ -18,7 +18,7 @@ Environment Variable Overrides:
 """
 import os
 from dataclasses import dataclass, field
-from typing import Optional, TypeVar, Callable
+from typing import Optional, TypeVar, Callable, List, Dict
 
 T = TypeVar("T")
 
@@ -77,7 +77,7 @@ class BenchmarkConfig:
         default_factory=lambda: env_or_default("ML_DATA_TABLE", "BENCHMARK_RAW_DATA")
     )
     results_table_name: str = field(
-        default_factory=lambda: env_or_default("ML_RESULTS_TABLE", "ML_BENCHMARK_RESULTS")
+        default_factory=lambda: env_or_default("ML_RESULTS_TABLE", "TEMP.MITAYLOR.ML_BENCHMARK_RESULTS")
     )
     
     num_total_features: int = 100
@@ -89,6 +89,8 @@ class BenchmarkConfig:
         "CPU_X64_S_TEST",
         "CPU_X64_M_TEST",
         "CPU_X64_SL_TEST",
+        "GPU_NV_S",
+        "GPU_NV_M",
     )
     
     model_row_limits: dict = field(default_factory=lambda: {
@@ -97,11 +99,13 @@ class BenchmarkConfig:
     
     results_schema: tuple = (
         "MODEL_CLASS",
+        "TASK_TYPE",
         "COMPUTE_POOL",
         "RUN_ID",
         "N_COLS_SAMPLED",
         "N_ROWS_SAMPLED",
         "DURATION_SECONDS",
+        "ESTIMATED_CREDITS",
         "START_TIMESTAMP",
     )
     
@@ -121,3 +125,19 @@ class BenchmarkConfig:
 
 
 DEFAULT_CONFIG = BenchmarkConfig()
+
+
+CREDIT_RATES: Dict[str, float] = {
+    "CPU_X64_XS_TEST": 0.06,
+    "CPU_X64_S_TEST": 0.12,
+    "CPU_X64_M_TEST": 0.24,
+    "CPU_X64_SL_TEST": 0.48,
+    "GPU_NV_S": 0.60,
+    "GPU_NV_M": 1.20,
+}
+
+
+def calculate_credits(pool_name: str, duration_seconds: float) -> float:
+    """Calculate credit cost from duration and pool type."""
+    rate = CREDIT_RATES.get(pool_name, 0.12)
+    return (duration_seconds / 3600) * rate
