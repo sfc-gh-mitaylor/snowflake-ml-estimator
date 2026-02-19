@@ -28,7 +28,10 @@ def get_snowflake_session():
     """Create Snowflake session from connection name."""
     from snowflake.snowpark import Session
     conn_name = os.getenv("SNOWFLAKE_CONNECTION_NAME", "default")
-    return Session.builder.config("connection_name", conn_name).create()
+    session = Session.builder.config("connection_name", conn_name).create()
+    session.sql("USE DATABASE ML_ESTIMATOR").collect()
+    session.sql("USE SCHEMA PUBLIC").collect()
+    return session
 
 
 def get_tested_combinations(session, table_name: str) -> Set[Combination]:

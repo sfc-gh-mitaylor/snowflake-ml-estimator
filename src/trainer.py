@@ -7,7 +7,7 @@ Usage:
 """
 import argparse
 import os
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -105,6 +105,24 @@ class CostEstimator:
             "credit_rate_per_hour": credit_rate,
         }
     
+    def predict_batch(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Predict for a batch of configurations."""
+        if not self.is_fitted:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        
+        results = []
+        for _, row in df.iterrows():
+            pred = self.predict(
+                model_class=row["MODEL_CLASS"],
+                task_type=row["TASK_TYPE"],
+                compute_pool=row["COMPUTE_POOL"],
+                n_cols=row["N_COLS_SAMPLED"],
+                n_rows=row["N_ROWS_SAMPLED"],
+            )
+            results.append(pred)
+        
+        return pd.DataFrame(results)
+    
     def get_known_values(self) -> Dict[str, list]:
         """Return lists of known model/pool/task values."""
         return {
@@ -150,22 +168,22 @@ def train_and_register(session, model_name: str = "ML_COST_ESTIMATOR", version: 
     
     print(f"\nRegistering model as {model_name}/{version}...")
     
-    sample_df = pd.DataFrame([{
-        "MODEL_CLASS": "XGBClassifier",
-        "TASK_TYPE": "classification", 
-        "COMPUTE_POOL": "CPU_X64_S_TEST",
-        "N_COLS_SAMPLED": 50,
-        "N_ROWS_SAMPLED": 100000,
-    }])
+    sample_df = pd.DataFrame({
+        "MODEL_ENCODED": [0],
+        "POOL_ENCODED": [1],
+        "TASK_ENCODED": [0],
+        "N_COLS_SAMPLED": [50],
+        "N_ROWS_SAMPLED": [100000],
+    })
     
-    registry = Registry(session)
+    registry = Registry(session, database_name="ML_ESTIMATOR", schema_name="PUBLIC")
     mv = registry.log_model(
-        model=estimator,
+        model=estimator.duration_model,
         model_name=model_name,
         version_name=version,
         sample_input_data=sample_df,
         metrics=metrics,
-        comment="ML training cost estimator - predicts duration and credits",
+        comment="ML training cost estimator - duration prediction model",
     )
     
     print(f"Model registered: {mv.model_name}/{mv.version_name}")
@@ -176,26 +194,19 @@ def evaluate_model(session):
     """Load and evaluate the registered model."""
     from snowflake.ml.registry import Registry
     
-    registry = Registry(session)
+    registry = Registry(session, database_name="ML_ESTIMATOR", schema_name="PUBLIC")
     model = registry.get_model("ML_COST_ESTIMATOR").default
     
-    test_cases = [
-        ("XGBClassifier", "classification", "CPU_X64_S_TEST", 50, 100000),
-        ("RandomForestRegressor", "regression", "CPU_X64_M_TEST", 75, 500000),
-        ("KMeans", "clustering", "CPU_X64_XS_TEST", 25, 200000),
-    ]
+    test_df = pd.DataFrame([
+        {"MODEL_CLASS": "XGBClassifier", "TASK_TYPE": "classification", "COMPUTE_POOL": "CPU_X64_S_TEST", "N_COLS_SAMPLED": 50, "N_ROWS_SAMPLED": 100000},
+        {"MODEL_CLASS": "RandomForestRegressor", "TASK_TYPE": "regression", "COMPUTE_POOL": "CPU_X64_M_TEST", "N_COLS_SAMPLED": 75, "N_ROWS_SAMPLED": 500000},
+        {"MODEL_CLASS": "KMeans", "TASK_TYPE": "clustering", "COMPUTE_POOL": "CPU_X64_XS_TEST", "N_COLS_SAMPLED": 25, "N_ROWS_SAMPLED": 200000},
+    ])
     
     print("\nTest Predictions:")
     print("-" * 70)
-    for model_class, task, pool, cols, rows in test_cases:
-        result = model.predict(model_class, task, pool, cols, rows)
-        print(f"{model_class} | {pool} | {cols}c x {rows:,}r")
-        if result.get("error"):
-            print(f"  ERROR: {result['error']}")
-        else:
-            print(f"  Duration: {result['duration_seconds']:.1f}s")
-            print(f"  Credits:  {result['estimated_credits']:.6f}")
-        print()
+    results = model.run(test_df)
+    print(results)
 
 
 def main():
@@ -210,6 +221,9 @@ def main():
     
     args = parser.parse_args()
     session = get_snowflake_session()
+    
+    session.sql("USE DATABASE ML_ESTIMATOR").collect()
+    session.sql("USE SCHEMA PUBLIC").collect()
     
     if args.command == "train":
         train_and_register(session, args.name, args.version)

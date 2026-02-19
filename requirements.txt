@@ -1,28 +1,21 @@
-# Snowflake ML Runtime Estimator - Requirements
-# Note: Most dependencies are pre-installed in Snowflake Notebooks
-# This file is for local development and Streamlit deployment
+# ML Cost Estimator - Requirements
 
 # Core Data Science
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0
 pandas>=2.0.0
 scipy>=1.10.0
 
 # Machine Learning
 scikit-learn>=1.3.0
-lightgbm>=4.0.0
 xgboost>=2.0.0
 
 # Snowflake
 snowflake-snowpark-python>=1.10.0
 snowflake-ml-python>=1.5.0
 
-# Visualization
-matplotlib>=3.7.0
-plotly>=5.15.0
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
 
-# Streamlit App
-streamlit>=1.28.0
-
-# Development (optional)
-jupyter>=1.0.0
-ipykernel>=6.0.0
+# Streamlit App (deprioritized - will be deployed to snowhouse later)
+streamlit>=1.28.0,<1.40.0

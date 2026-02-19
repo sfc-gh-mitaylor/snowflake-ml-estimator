@@ -22,14 +22,19 @@ from typing import Tuple, Optional, Literal
 def generate_classification_data(
     n_samples: int = 1_000_000,
     n_features: int = 100,
-    n_informative: int = 80,
-    n_redundant: int = 10,
+    n_informative: int = None,
+    n_redundant: int = None,
     n_classes: int = 2,
     random_state: int = 42,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate synthetic classification data for benchmarking.
     """
+    if n_informative is None:
+        n_informative = max(2, int(n_features * 0.7))
+    if n_redundant is None:
+        n_redundant = max(0, min(int(n_features * 0.1), n_features - n_informative - 1))
+    
     X, y = make_classification(
         n_samples=n_samples,
         n_features=n_features,
@@ -45,11 +50,14 @@ def generate_classification_data(
 def generate_regression_data(
     n_samples: int = 1_000_000,
     n_features: int = 100,
-    n_informative: int = 80,
+    n_informative: int = None,
     noise: float = 0.1,
     random_state: int = 42,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Generate synthetic regression data for benchmarking."""
+    if n_informative is None:
+        n_informative = max(2, int(n_features * 0.7))
+    
     X, y = make_regression(
         n_samples=n_samples,
         n_features=n_features,

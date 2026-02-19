@@ -123,6 +123,63 @@ estimators:
       n_jobs: -1
       random_state: 42
 
+  # --- Decision Tree ---
+  DecisionTreeClassifier:
+    module: sklearn.tree
+    class: DecisionTreeClassifier
+    task_type: classification
+    params:
+      max_depth: 15
+      min_samples_leaf: 5
+      random_state: 42
+
+  # --- Extra Trees ---
+  ExtraTreesClassifier:
+    module: sklearn.ensemble
+    class: ExtraTreesClassifier
+    task_type: classification
+    params:
+      n_estimators: 100
+      max_depth: 15
+      min_samples_leaf: 5
+      n_jobs: -1
+      random_state: 42
+
+  # --- Histogram Gradient Boosting (Fast) ---
+  HistGradientBoostingClassifier:
+    module: sklearn.ensemble
+    class: HistGradientBoostingClassifier
+    task_type: classification
+    params:
+      max_iter: 100
+      learning_rate: 0.1
+      max_depth: 10
+      random_state: 42
+
+  # --- CatBoost ---
+  CatBoostClassifier:
+    module: catboost
+    class: CatBoostClassifier
+    task_type: classification
+    params:
+      iterations: 150
+      learning_rate: 0.05
+      depth: 6
+      random_state: 42
+      verbose: 0
+
+  # --- SGD Classifier ---
+  SGDClassifier:
+    module: sklearn.linear_model
+    class: SGDClassifier
+    task_type: classification
+    params:
+      loss: log_loss
+      penalty: l2
+      max_iter: 1000
+      random_state: 42
+      n_jobs: -1
+
   # =============================================================================
   # REGRESSION MODELS
   # =============================================================================
@@ -200,6 +257,81 @@ estimators:
       gamma: scale
     row_limit: 100000
 
+  # --- Decision Tree Regressor ---
+  DecisionTreeRegressor:
+    module: sklearn.tree
+    class: DecisionTreeRegressor
+    task_type: regression
+    params:
+      max_depth: 15
+      min_samples_leaf: 5
+      random_state: 42
+
+  # --- Extra Trees Regressor ---
+  ExtraTreesRegressor:
+    module: sklearn.ensemble
+    class: ExtraTreesRegressor
+    task_type: regression
+    params:
+      n_estimators: 100
+      max_depth: 15
+      min_samples_leaf: 5
+      n_jobs: -1
+      random_state: 42
+
+  # --- Histogram Gradient Boosting Regressor ---
+  HistGradientBoostingRegressor:
+    module: sklearn.ensemble
+    class: HistGradientBoostingRegressor
+    task_type: regression
+    params:
+      max_iter: 100
+      learning_rate: 0.1
+      max_depth: 10
+      random_state: 42
+
+  # --- CatBoost Regressor ---
+  CatBoostRegressor:
+    module: catboost
+    class: CatBoostRegressor
+    task_type: regression
+    params:
+      iterations: 150
+      learning_rate: 0.05
+      depth: 6
+      random_state: 42
+      verbose: 0
+
+  # --- Lasso ---
+  Lasso:
+    module: sklearn.linear_model
+    class: Lasso
+    task_type: regression
+    params:
+      alpha: 1.0
+      random_state: 42
+
+  # --- ElasticNet ---
+  ElasticNet:
+    module: sklearn.linear_model
+    class: ElasticNet
+    task_type: regression
+    params:
+      alpha: 1.0
+      l1_ratio: 0.5
+      random_state: 42
+
+  # --- SGD Regressor ---
+  SGDRegressor:
+    module: sklearn.linear_model
+    class: SGDRegressor
+    task_type: regression
+    params:
+      loss: squared_error
+      penalty: l2
+      max_iter: 1000
+      random_state: 42
+
   # =============================================================================
   # CLUSTERING MODELS
   # =============================================================================
@@ -240,4 +372,61 @@ estimators:
     params:
       n_clusters: 8
       linkage: ward
+    row_limit: 50000
+
+  # --- HDBSCAN ---
+  HDBSCAN:
+    module: hdbscan
+    class: HDBSCAN
+    task_type: clustering
+    params:
+      min_cluster_size: 15
+      min_samples: 5
+    row_limit: 100000
+
+  # --- Spectral Clustering ---
+  SpectralClustering:
+    module: sklearn.cluster
+    class: SpectralClustering
+    task_type: clustering
+    params:
+      n_clusters: 8
+      affinity: nearest_neighbors
+      random_state: 42
+    row_limit: 10000
+
+  # --- Birch ---
+  Birch:
+    module: sklearn.cluster
+    class: Birch
+    task_type: clustering
+    params:
+      n_clusters: 8
+      threshold: 0.5
+      branching_factor: 50
+
+  # =============================================================================
+  # ANOMALY DETECTION MODELS
+  # =============================================================================
+
+  # --- Isolation Forest ---
+  IsolationForest:
+    module: sklearn.ensemble
+    class: IsolationForest
+    task_type: anomaly_detection
+    params:
+      n_estimators: 100
+      contamination: auto
+      random_state: 42
+      n_jobs: -1
+
+  # --- One-Class SVM ---
+  OneClassSVM:
+    module: sklearn.svm
+    class: OneClassSVM
+    task_type: anomaly_detection
+    params:
+      kernel: rbf
+      gamma: scale
+      nu: 0.1
     row_limit: 50000

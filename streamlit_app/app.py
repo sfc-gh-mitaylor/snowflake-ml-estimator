@@ -36,14 +36,14 @@ def get_session():
 @st.cache_data(ttl=300)
 def load_benchmark_data():
     session = get_session()
-    return session.table("TEMP.MITAYLOR.ML_BENCHMARK_RESULTS").to_pandas()
+    return session.table("ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS").to_pandas()
 
 
 @st.cache_resource
 def load_model():
     from snowflake.ml.registry import Registry
     session = get_session()
-    registry = Registry(session)
+    registry = Registry(session, database_name="ML_ESTIMATOR", schema_name="PUBLIC")
     return registry.get_model("ML_COST_ESTIMATOR").default
 
 
@@ -72,7 +72,7 @@ def retrain_model():
     import numpy as np
     
     session = get_session()
-    df = session.table("TEMP.MITAYLOR.ML_BENCHMARK_RESULTS").to_pandas()
+    df = session.table("ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS").to_pandas()
     df = df[df["DURATION_SECONDS"] > 0].copy()
     
     le_model = LabelEncoder()
