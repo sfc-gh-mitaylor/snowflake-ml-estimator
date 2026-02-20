@@ -86,8 +86,29 @@ def generate_clustering_data(
     return X, y
 
 
+def generate_anomaly_data(
+    n_samples: int = 1_000_000,
+    n_features: int = 100,
+    contamination: float = 0.05,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate synthetic anomaly detection data (mostly normal with outliers)."""
+    rng = np.random.RandomState(random_state)
+    n_outliers = int(n_samples * contamination)
+    n_normal = n_samples - n_outliers
+    
+    X_normal = rng.randn(n_normal, n_features)
+    X_outliers = rng.uniform(-10, 10, (n_outliers, n_features))
+    
+    X = np.vstack([X_normal, X_outliers])
+    y = np.hstack([np.ones(n_normal), -np.ones(n_outliers)])
+    
+    shuffle_idx = rng.permutation(n_samples)
+    return X[shuffle_idx], y[shuffle_idx]
+
+
 def generate_data(
-    task_type: Literal["classification", "regression", "clustering"],
+    task_type: Literal["classification", "regression", "clustering", "anomaly_detection"],
     n_samples: int = 1_000_000,
     n_features: int = 100,
     random_state: int = 42,
@@ -99,6 +120,8 @@ def generate_data(
         return generate_regression_data(n_samples, n_features, random_state=random_state)
     elif task_type == "clustering":
         return generate_clustering_data(n_samples, n_features, random_state=random_state)
+    elif task_type == "anomaly_detection":
+        return generate_anomaly_data(n_samples, n_features, random_state=random_state)
     else:
         raise ValueError(f"Unknown task type: {task_type}")
 

@@ -87,7 +87,7 @@ def run_single_benchmark(
     model = factory.create(model_name)
     
     start = time.perf_counter()
-    if task_type == "clustering":
+    if task_type in ("clustering", "anomaly_detection"):
         model.fit(X)
     else:
         model.fit(X, y)
@@ -103,13 +103,16 @@ def run_benchmarks(
     factory: EstimatorFactory,
     runs_per_combo: int = 3,
     dry_run: bool = False,
+    batch_size: int = 10,
 ) -> pd.DataFrame:
-    """Run benchmarks for given combinations and save results."""
+    """Run benchmarks for given combinations and save results incrementally."""
     results = []
+    all_results = []
     total = len(combinations) * runs_per_combo
     completed = 0
     
     print(f"\nRunning {len(combinations)} combinations x {runs_per_combo} runs = {total} total")
+    print(f"Saving every {batch_size} runs to prevent data loss")
     print("=" * 60)
     
     for model_name, task_type, pool, n_cols, n_rows in combinations:
@@ -130,7 +133,7 @@ def run_benchmarks(
             
             credits = calculate_credits(pool, duration) if duration > 0 else 0.0
             
-            results.append({
+            result = {
                 "MODEL_CLASS": model_name,
                 "TASK_TYPE": task_type,
                 "COMPUTE_POOL": pool,
@@ -140,19 +143,34 @@ def run_benchmarks(
                 "DURATION_SECONDS": round(duration, 4),
                 "ESTIMATED_CREDITS": round(credits, 6),
                 "START_TIMESTAMP": datetime.now().isoformat(),
-            })
+            }
+            results.append(result)
+            all_results.append(result)
             
             if duration > 0:
                 print(f"  -> {duration:.2f}s, {credits:.6f} credits")
+            
+            if not dry_run and len(results) >= batch_size:
+                try:
+                    df = pd.DataFrame(results)
+                    snow_df = session.create_dataframe(df)
+                    snow_df.write.mode("append").save_as_table(config.results_table_name)
+                    print(f"  [SAVED {len(results)} results]")
+                    results = []
+                except Exception as e:
+                    print(f"  [SAVE FAILED: {e}] - will retry next batch")
     
-    df = pd.DataFrame(results)
+    if not dry_run and len(results) > 0:
+        try:
+            df = pd.DataFrame(results)
+            snow_df = session.create_dataframe(df)
+            snow_df.write.mode("append").save_as_table(config.results_table_name)
+            print(f"\nSaved final {len(results)} results to {config.results_table_name}")
+        except Exception as e:
+            print(f"\nFailed to save final batch: {e}")
+            print("Results available in returned DataFrame")
     
-    if not dry_run and len(df) > 0:
-        snow_df = session.create_dataframe(df)
-        snow_df.write.mode("append").save_as_table(config.results_table_name)
-        print(f"\nSaved {len(df)} results to {config.results_table_name}")
-    
-    return df
+    return pd.DataFrame(all_results)
 
 
 def show_status(session, config: BenchmarkConfig, factory: EstimatorFactory):
@@ -170,7 +188,7 @@ def show_status(session, config: BenchmarkConfig, factory: EstimatorFactory):
     print(f"Coverage:                    {len(tested)/len(all_combos)*100:.1f}%")
     
     print("\nBy task type:")
-    for task_type in ["classification", "regression", "clustering"]:
+    for task_type in ["classification", "regression", "clustering", "anomaly_detection"]:
         task_combos = [c for c in all_combos if c[1] == task_type]
         task_tested = [c for c in tested if c[1] == task_type]
         print(f"  {task_type}: {len(task_tested)}/{len(task_combos)}")
@@ -189,7 +207,7 @@ def main():
     run_parser = subparsers.add_parser("run", help="Run benchmarks")
     run_parser.add_argument("--max-combos", type=int, default=50, help="Max combinations to run")
     run_parser.add_argument("--runs", type=int, default=3, help="Runs per combination")
-    run_parser.add_argument("--task-type", choices=["classification", "regression", "clustering"])
+    run_parser.add_argument("--task-type", choices=["classification", "regression", "clustering", "anomaly_detection"])
     run_parser.add_argument("--dry-run", action="store_true", help="Simulate without running")
     
     subparsers.add_parser("status", help="Show benchmark coverage status")
