@@ -3,6 +3,7 @@ channels:
   - snowflake
 dependencies:
   - pandas
+  - numpy
   - scikit-learn
   - plotly
   - snowflake-ml-python

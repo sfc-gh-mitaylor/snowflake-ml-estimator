@@ -1,12 +1,13 @@
 """
-Training Benchmark Job - Runs on Snowflake Compute Pool via ML Jobs.
+Inference Benchmark Job - Runs on Snowflake Compute Pool via ML Jobs.
 
-Benchmarks sklearn classifier training time on actual SPCS compute.
-Results are written directly to ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS.
+Benchmarks batch prediction time for trained sklearn classifiers.
+Measures how long it takes to predict N rows after training on a fixed dataset.
+Results are written to ML_ESTIMATOR.PUBLIC.ML_INFERENCE_RESULTS.
 
 Usage (via ML Jobs — see submit_jobs.py):
     from snowflake.ml.jobs import submit_file
-    job = submit_file("src/benchmark_job.py", "CPU_X64_S_TEST",
+    job = submit_file("src/inference_benchmark_job.py", "CPU_X64_S_TEST",
                       stage_name="ML_ESTIMATOR.PUBLIC.ML_JOBS_STAGE",
                       args=["--pool", "CPU_X64_S_TEST", "--runs", "3"])
 """
@@ -46,10 +47,12 @@ CREDIT_RATES = {
     "CPU_X64_SL_TEST": 0.48,
 }
 
+TRAIN_ROWS = 100_000
+TRAIN_COLS = 50
+GRID_PREDICT_ROWS = [1_000, 10_000, 50_000, 100_000, 500_000]
 GRID_COLS = [25, 50, 100]
-GRID_ROWS = [50_000, 200_000, 500_000]
 
-RESULTS_TABLE = "ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS"
+RESULTS_TABLE = "ML_ESTIMATOR.PUBLIC.ML_INFERENCE_RESULTS"
 
 
 def create_model(name: str):
@@ -70,19 +73,24 @@ def generate_data(n_samples: int, n_features: int) -> Tuple[np.ndarray, np.ndarr
     )
 
 
-def run_single_benchmark(model_name: str, n_cols: int, n_rows: int) -> float:
-    X, y = generate_data(n_samples=n_rows, n_features=n_cols)
+def run_inference_benchmark(model_name: str, n_cols: int, n_predict_rows: int) -> float:
+    train_rows = min(TRAIN_ROWS, ROW_LIMITS.get(model_name, TRAIN_ROWS))
+    X_train, y_train = generate_data(n_samples=train_rows, n_features=n_cols)
     model = create_model(model_name)
+    model.fit(X_train, y_train)
+
+    X_pred, _ = generate_data(n_samples=n_predict_rows, n_features=n_cols)
+
     start = time.perf_counter()
-    model.fit(X, y)
+    model.predict(X_pred)
     return time.perf_counter() - start
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Training Benchmark Job")
+    parser = argparse.ArgumentParser(description="Inference Benchmark Job")
     parser.add_argument("--pool", required=True, help="Compute pool name (for recording)")
     parser.add_argument("--runs", type=int, default=3, help="Runs per combination")
-    parser.add_argument("--models", nargs="*", default=None, help="Specific models to benchmark (default: all)")
+    parser.add_argument("--models", nargs="*", default=None, help="Specific models to benchmark")
     args = parser.parse_args()
 
     session = Session.builder.getOrCreate()
@@ -98,12 +106,12 @@ def main():
 
     combinations = []
     for model_name in models:
-        row_limit = ROW_LIMITS.get(model_name)
         for n_cols in GRID_COLS:
-            for n_rows in GRID_ROWS:
-                if row_limit and n_rows > row_limit:
+            for n_predict_rows in GRID_PREDICT_ROWS:
+                row_limit = ROW_LIMITS.get(model_name)
+                if row_limit and n_predict_rows > row_limit:
                     continue
-                combinations.append((model_name, n_cols, n_rows))
+                combinations.append((model_name, n_cols, n_predict_rows))
 
     total = len(combinations) * runs_per_combo
     print(f"Pool: {pool} | Credit rate: {credit_rate}/hr")
@@ -114,15 +122,15 @@ def main():
     results = []
     completed = 0
 
-    for model_name, n_cols, n_rows in combinations:
+    for model_name, n_cols, n_predict_rows in combinations:
         for run_id in range(1, runs_per_combo + 1):
             completed += 1
-            print(f"[{completed}/{total}] {model_name} | {n_cols}c x {n_rows:,}r | run {run_id}")
+            print(f"[{completed}/{total}] {model_name} | {n_cols}c | predict {n_predict_rows:,}r | run {run_id}")
 
             try:
-                duration = run_single_benchmark(model_name, n_cols, n_rows)
+                duration = run_inference_benchmark(model_name, n_cols, n_predict_rows)
                 credits = (duration / 3600) * credit_rate
-                print(f"  -> {duration:.2f}s | {credits:.6f} credits")
+                print(f"  -> {duration:.4f}s | {credits:.6f} credits")
             except Exception as e:
                 print(f"  ERROR: {e}")
                 duration = -1.0
@@ -133,10 +141,10 @@ def main():
                 "TASK_TYPE": "classification",
                 "COMPUTE_POOL": pool,
                 "RUN_ID": run_id,
-                "N_COLS_SAMPLED": n_cols,
-                "N_ROWS_SAMPLED": n_rows,
-                "DURATION_SECONDS": round(duration, 4),
-                "ESTIMATED_CREDITS": round(credits, 6),
+                "N_COLS": n_cols,
+                "N_PREDICT_ROWS": n_predict_rows,
+                "PREDICT_DURATION_SECONDS": round(duration, 6),
+                "ESTIMATED_CREDITS": round(credits, 8),
                 "START_TIMESTAMP": datetime.now().isoformat(),
             })
 
@@ -160,7 +168,7 @@ def main():
             print(f"\nFailed to save final batch: {e}")
 
     print("\n" + "=" * 60)
-    print(f"TRAINING BENCHMARK COMPLETE — {completed} runs on {pool}")
+    print(f"INFERENCE BENCHMARK COMPLETE — {completed} runs on {pool}")
     print("=" * 60)
 
 

@@ -1,24 +1,25 @@
 """
-Benchmark Runner - Executes ML benchmarks and records results.
+Benchmark Status & Utilities.
+
+All benchmark execution happens on Snowflake SPCS via ML Jobs.
+Use submit_jobs.py to run benchmarks:
+    python -m src.submit_jobs submit --pool CPU_X64_S_TEST
+    python -m src.submit_jobs submit-all
+    python -m src.submit_jobs status
+
+This module provides status checking and combination generation utilities.
 
 Usage:
-    python -m src.runner --help
-    python -m src.runner run --max-combos 10
     python -m src.runner status
 """
 import argparse
 import itertools
-import time
-from datetime import datetime
-from typing import List, Tuple, Set, Optional
+import sys
+from typing import List, Tuple, Set
 import os
 
-import numpy as np
-import pandas as pd
-
-from .config import BenchmarkConfig, DEFAULT_CONFIG, CREDIT_RATES, calculate_credits
+from .config import BenchmarkConfig, DEFAULT_CONFIG
 from .estimators import EstimatorFactory, DEFAULT_FACTORY
-from .data_generator import generate_data
 
 
 Combination = Tuple[str, str, str, int, int]  # (model, task_type, pool, cols, rows)
@@ -71,108 +72,6 @@ def generate_all_combinations(
     return combinations
 
 
-def run_single_benchmark(
-    model_name: str,
-    task_type: str,
-    n_cols: int,
-    n_rows: int,
-    factory: EstimatorFactory,
-) -> float:
-    """Run a single model fit and return duration in seconds."""
-    X, y = generate_data(task_type, n_samples=n_rows, n_features=n_cols)
-    
-    if n_cols < X.shape[1]:
-        X = X[:, :n_cols]
-    
-    model = factory.create(model_name)
-    
-    start = time.perf_counter()
-    if task_type in ("clustering", "anomaly_detection"):
-        model.fit(X)
-    else:
-        model.fit(X, y)
-    duration = time.perf_counter() - start
-    
-    return duration
-
-
-def run_benchmarks(
-    session,
-    combinations: List[Combination],
-    config: BenchmarkConfig,
-    factory: EstimatorFactory,
-    runs_per_combo: int = 3,
-    dry_run: bool = False,
-    batch_size: int = 10,
-) -> pd.DataFrame:
-    """Run benchmarks for given combinations and save results incrementally."""
-    results = []
-    all_results = []
-    total = len(combinations) * runs_per_combo
-    completed = 0
-    
-    print(f"\nRunning {len(combinations)} combinations x {runs_per_combo} runs = {total} total")
-    print(f"Saving every {batch_size} runs to prevent data loss")
-    print("=" * 60)
-    
-    for model_name, task_type, pool, n_cols, n_rows in combinations:
-        for run_id in range(1, runs_per_combo + 1):
-            completed += 1
-            print(f"[{completed}/{total}] {model_name} | {pool} | {n_cols}c x {n_rows:,}r | run {run_id}")
-            
-            if dry_run:
-                duration = np.random.uniform(1, 10)
-            else:
-                try:
-                    duration = run_single_benchmark(
-                        model_name, task_type, n_cols, n_rows, factory
-                    )
-                except Exception as e:
-                    print(f"  ERROR: {e}")
-                    duration = -1.0
-            
-            credits = calculate_credits(pool, duration) if duration > 0 else 0.0
-            
-            result = {
-                "MODEL_CLASS": model_name,
-                "TASK_TYPE": task_type,
-                "COMPUTE_POOL": pool,
-                "RUN_ID": run_id,
-                "N_COLS_SAMPLED": n_cols,
-                "N_ROWS_SAMPLED": n_rows,
-                "DURATION_SECONDS": round(duration, 4),
-                "ESTIMATED_CREDITS": round(credits, 6),
-                "START_TIMESTAMP": datetime.now().isoformat(),
-            }
-            results.append(result)
-            all_results.append(result)
-            
-            if duration > 0:
-                print(f"  -> {duration:.2f}s, {credits:.6f} credits")
-            
-            if not dry_run and len(results) >= batch_size:
-                try:
-                    df = pd.DataFrame(results)
-                    snow_df = session.create_dataframe(df)
-                    snow_df.write.mode("append").save_as_table(config.results_table_name)
-                    print(f"  [SAVED {len(results)} results]")
-                    results = []
-                except Exception as e:
-                    print(f"  [SAVE FAILED: {e}] - will retry next batch")
-    
-    if not dry_run and len(results) > 0:
-        try:
-            df = pd.DataFrame(results)
-            snow_df = session.create_dataframe(df)
-            snow_df.write.mode("append").save_as_table(config.results_table_name)
-            print(f"\nSaved final {len(results)} results to {config.results_table_name}")
-        except Exception as e:
-            print(f"\nFailed to save final batch: {e}")
-            print("Results available in returned DataFrame")
-    
-    return pd.DataFrame(all_results)
-
-
 def show_status(session, config: BenchmarkConfig, factory: EstimatorFactory):
     """Show current benchmark coverage status."""
     all_combos = generate_all_combinations(factory, config)
@@ -201,41 +100,35 @@ def show_status(session, config: BenchmarkConfig, factory: EstimatorFactory):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="ML Benchmark Runner")
+    parser = argparse.ArgumentParser(
+        description="ML Benchmark Status (benchmarks run on Snowflake via submit_jobs.py)"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    
-    run_parser = subparsers.add_parser("run", help="Run benchmarks")
-    run_parser.add_argument("--max-combos", type=int, default=50, help="Max combinations to run")
-    run_parser.add_argument("--runs", type=int, default=3, help="Runs per combination")
-    run_parser.add_argument("--task-type", choices=["classification", "regression", "clustering", "anomaly_detection"])
-    run_parser.add_argument("--dry-run", action="store_true", help="Simulate without running")
-    
+
     subparsers.add_parser("status", help="Show benchmark coverage status")
-    
+
+    run_parser = subparsers.add_parser("run", help="(REMOVED) Use submit_jobs.py instead")
+    run_parser.add_argument("--max-combos", type=int, default=50)
+    run_parser.add_argument("--runs", type=int, default=3)
+    run_parser.add_argument("--task-type", type=str, default=None)
+    run_parser.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args()
-    
-    session = get_snowflake_session()
-    config = DEFAULT_CONFIG
-    factory = DEFAULT_FACTORY
-    
-    if args.command == "status":
-        show_status(session, config, factory)
-    
-    elif args.command == "run":
-        all_combos = generate_all_combinations(factory, config)
-        tested = get_tested_combinations(session, config.results_table_name)
-        remaining = [c for c in all_combos if c not in tested]
-        
-        if args.task_type:
-            remaining = [c for c in remaining if c[1] == args.task_type]
-        
-        to_run = remaining[:args.max_combos]
-        
-        if not to_run:
-            print("No remaining combinations to run!")
-            return
-        
-        run_benchmarks(session, to_run, config, factory, args.runs, args.dry_run)
+
+    if args.command == "run":
+        print("ERROR: Local benchmark execution has been removed.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Benchmarks MUST run on Snowflake SPCS via ML Jobs.", file=sys.stderr)
+        print("Use submit_jobs.py instead:", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  python -m src.submit_jobs submit --pool CPU_X64_S_TEST", file=sys.stderr)
+        print("  python -m src.submit_jobs submit-all", file=sys.stderr)
+        print("  python -m src.submit_jobs status", file=sys.stderr)
+        sys.exit(1)
+
+    elif args.command == "status":
+        session = get_snowflake_session()
+        show_status(session, DEFAULT_CONFIG, DEFAULT_FACTORY)
 
 
 if __name__ == "__main__":
