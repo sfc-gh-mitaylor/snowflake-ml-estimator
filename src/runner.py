@@ -1,32 +1,21 @@
 """
-Benchmark Status & Utilities.
+Benchmark Status — query Snowflake for coverage stats.
 
 All benchmark execution happens on Snowflake SPCS via ML Jobs.
 Use submit_jobs.py to run benchmarks:
     python -m src.submit_jobs submit --pool CPU_X64_S_TEST
     python -m src.submit_jobs submit-all
     python -m src.submit_jobs status
-
-This module provides status checking and combination generation utilities.
-
-Usage:
-    python -m src.runner status
 """
 import argparse
-import itertools
 import sys
-from typing import List, Tuple, Set
 import os
 
-from .config import BenchmarkConfig, DEFAULT_CONFIG
-from .estimators import EstimatorFactory, DEFAULT_FACTORY
 
-
-Combination = Tuple[str, str, str, int, int]  # (model, task_type, pool, cols, rows)
+RESULTS_TABLE = "ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS"
 
 
 def get_snowflake_session():
-    """Create Snowflake session from connection name."""
     from snowflake.snowpark import Session
     conn_name = os.getenv("SNOWFLAKE_CONNECTION_NAME", "default")
     session = Session.builder.config("connection_name", conn_name).create()
@@ -35,68 +24,36 @@ def get_snowflake_session():
     return session
 
 
-def get_tested_combinations(session, table_name: str) -> Set[Combination]:
-    """Query existing results to find already-tested combinations."""
-    try:
-        df = session.table(table_name).select(
-            "MODEL_CLASS", "TASK_TYPE", "COMPUTE_POOL", "N_COLS_SAMPLED", "N_ROWS_SAMPLED"
-        ).distinct().to_pandas()
-        
-        return set(
-            (row["MODEL_CLASS"], row["TASK_TYPE"], row["COMPUTE_POOL"], 
-             row["N_COLS_SAMPLED"], row["N_ROWS_SAMPLED"])
-            for _, row in df.iterrows()
-        )
-    except Exception:
-        return set()
+def show_status(session):
+    df = session.sql(f"""
+        SELECT TASK_TYPE, COMPUTE_POOL, MODEL_CLASS,
+               COUNT(DISTINCT N_COLS_SAMPLED || '-' || N_ROWS_SAMPLED) as COMBOS,
+               COUNT(*) as RUNS,
+               ROUND(AVG(DURATION_SECONDS), 2) as AVG_SEC
+        FROM {RESULTS_TABLE}
+        WHERE DURATION_SECONDS > 0
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 2, 3
+    """).to_pandas()
 
+    total_runs = df["RUNS"].sum()
+    total_combos = df["COMBOS"].sum()
 
-def generate_all_combinations(
-    factory: EstimatorFactory,
-    config: BenchmarkConfig,
-) -> List[Combination]:
-    """Generate all (model, task_type, pool, cols, rows) combinations."""
-    combinations = []
-    
-    for model_name in factory.list_available():
-        task_type = factory.get_task_type(model_name)
-        row_limit = factory.get_row_limit(model_name)
-        
-        for pool, cols, rows in itertools.product(
-            config.grid_pools, config.grid_cols, config.grid_rows
-        ):
-            if row_limit and rows > row_limit:
-                continue
-            combinations.append((model_name, task_type, pool, cols, rows))
-    
-    return combinations
-
-
-def show_status(session, config: BenchmarkConfig, factory: EstimatorFactory):
-    """Show current benchmark coverage status."""
-    all_combos = generate_all_combinations(factory, config)
-    tested = get_tested_combinations(session, config.results_table_name)
-    remaining = [c for c in all_combos if c not in tested]
-    
     print("\n" + "=" * 60)
     print("BENCHMARK STATUS")
     print("=" * 60)
-    print(f"Total possible combinations: {len(all_combos)}")
-    print(f"Already tested:              {len(tested)}")
-    print(f"Remaining:                   {len(remaining)}")
-    print(f"Coverage:                    {len(tested)/len(all_combos)*100:.1f}%")
-    
+    print(f"Total successful runs: {total_runs:,}")
+    print(f"Model/pool/grid combos covered: {total_combos:,}")
+    print(f"Distinct models: {df['MODEL_CLASS'].nunique()}")
+    print(f"Distinct pools: {df['COMPUTE_POOL'].nunique()}")
+
     print("\nBy task type:")
-    for task_type in ["classification", "regression", "clustering", "anomaly_detection"]:
-        task_combos = [c for c in all_combos if c[1] == task_type]
-        task_tested = [c for c in tested if c[1] == task_type]
-        print(f"  {task_type}: {len(task_tested)}/{len(task_combos)}")
-    
+    for task, group in df.groupby("TASK_TYPE"):
+        print(f"  {task}: {group['RUNS'].sum():,} runs, {group['MODEL_CLASS'].nunique()} models")
+
     print("\nBy compute pool:")
-    for pool in config.grid_pools:
-        pool_combos = [c for c in all_combos if c[2] == pool]
-        pool_tested = [c for c in tested if c[2] == pool]
-        print(f"  {pool}: {len(pool_tested)}/{len(pool_combos)}")
+    for pool, group in df.groupby("COMPUTE_POOL"):
+        print(f"  {pool}: {group['RUNS'].sum():,} runs, {group['MODEL_CLASS'].nunique()} models")
 
 
 def main():
@@ -104,7 +61,6 @@ def main():
         description="ML Benchmark Status (benchmarks run on Snowflake via submit_jobs.py)"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
     subparsers.add_parser("status", help="Show benchmark coverage status")
 
     run_parser = subparsers.add_parser("run", help="(REMOVED) Use submit_jobs.py instead")
@@ -117,18 +73,13 @@ def main():
 
     if args.command == "run":
         print("ERROR: Local benchmark execution has been removed.", file=sys.stderr)
-        print("", file=sys.stderr)
         print("Benchmarks MUST run on Snowflake SPCS via ML Jobs.", file=sys.stderr)
-        print("Use submit_jobs.py instead:", file=sys.stderr)
-        print("", file=sys.stderr)
-        print("  python -m src.submit_jobs submit --pool CPU_X64_S_TEST", file=sys.stderr)
-        print("  python -m src.submit_jobs submit-all", file=sys.stderr)
-        print("  python -m src.submit_jobs status", file=sys.stderr)
+        print("Use: python -m src.submit_jobs submit-all", file=sys.stderr)
         sys.exit(1)
 
     elif args.command == "status":
         session = get_snowflake_session()
-        show_status(session, DEFAULT_CONFIG, DEFAULT_FACTORY)
+        show_status(session)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """
 Submit Benchmark Jobs - Fire and forget ML Jobs to Snowflake.
 
-Submits training benchmark jobs to actual Snowflake compute pools.
+Submits benchmark jobs to actual Snowflake compute pools.
 Once submitted, you can close your laptop - jobs run on Snowflake.
 
 Usage:
@@ -48,12 +48,31 @@ def submit_training_job(session, pool: str, runs: int = 3):
     script_path = Path(__file__).parent / "benchmark_job.py"
     args = ["--pool", pool, "--runs", str(runs)]
 
-    print(f"Submitting training benchmark: pool={pool}, runs={runs}")
+    print(f"Submitting classification-training benchmark: pool={pool}, runs={runs}")
     job = submit_file(
         str(script_path),
         pool,
         stage_name=STAGE_NAME,
         args=args,
+        session=session,
+    )
+    print(f"  Job ID: {job.id}")
+    print(f"  Status: {job.status}")
+    return job
+
+
+def submit_regression_job(session, pool: str, runs: int = 3):
+    script_path = Path(__file__).parent / "regression_benchmark_job.py"
+    args = ["--pool", pool, "--runs", str(runs)]
+
+    print(f"Submitting regression-training benchmark: pool={pool}, runs={runs}")
+    job = submit_file(
+        str(script_path),
+        pool,
+        stage_name=STAGE_NAME,
+        args=args,
+        pip_requirements=["xgboost", "lightgbm", "catboost"],
+        external_access_integrations=["PYPI_ACCESS_INTEGRATION"],
         session=session,
     )
     print(f"  Job ID: {job.id}")
@@ -65,7 +84,7 @@ def submit_inference_job(session, pool: str, runs: int = 3):
     script_path = Path(__file__).parent / "inference_benchmark_job.py"
     args = ["--pool", pool, "--runs", str(runs)]
 
-    print(f"Submitting inference benchmark: pool={pool}, runs={runs}")
+    print(f"Submitting classification-inference benchmark: pool={pool}, runs={runs}")
     job = submit_file(
         str(script_path),
         pool,
@@ -78,9 +97,13 @@ def submit_inference_job(session, pool: str, runs: int = 3):
     return job
 
 
-def submit_all_jobs(session, runs: int = 3, job_type: str = "training"):
+def submit_all_jobs(session, runs: int = 3, job_type: str = "classification-training"):
     jobs = []
-    submit_fn = submit_training_job if job_type == "training" else submit_inference_job
+    submit_fn = {
+        "classification-training": submit_training_job,
+        "classification-inference": submit_inference_job,
+        "regression-training": submit_regression_job,
+    }[job_type]
 
     for pool in COMPUTE_POOLS:
         try:
@@ -137,7 +160,7 @@ def show_status(session, job_id: str = None):
         for j in tracked[-10:]:
             try:
                 job = get_job(j["job_id"], session=session)
-                jtype = j.get("type", "training")
+                jtype = j.get("type", "classification-training")
                 print(f"{j['pool']:18} | {jtype:10} | {job.status:10} | {j['job_id']}")
             except Exception as e:
                 print(f"{j['pool']:18} | ERROR: {e}")
@@ -150,11 +173,11 @@ def main():
     submit_parser = subparsers.add_parser("submit", help="Submit a single job")
     submit_parser.add_argument("--pool", required=True, choices=COMPUTE_POOLS)
     submit_parser.add_argument("--runs", type=int, default=3)
-    submit_parser.add_argument("--type", choices=["training", "inference"], default="training")
+    submit_parser.add_argument("--type", choices=["classification-training", "classification-inference", "regression-training"], default="classification-training")
 
     all_parser = subparsers.add_parser("submit-all", help="Submit jobs for all pools")
     all_parser.add_argument("--runs", type=int, default=3)
-    all_parser.add_argument("--type", choices=["training", "inference"], default="training")
+    all_parser.add_argument("--type", choices=["classification-training", "classification-inference", "regression-training"], default="classification-training")
 
     status_parser = subparsers.add_parser("status", help="Check job status")
     status_parser.add_argument("--job-id", help="Specific job ID to check")
@@ -164,7 +187,7 @@ def main():
 
     if args.command == "submit":
         ensure_stage(session)
-        submit_fn = submit_training_job if args.type == "training" else submit_inference_job
+        submit_fn = {"classification-training": submit_training_job, "classification-inference": submit_inference_job, "regression-training": submit_regression_job}[args.type]
         job = submit_fn(session, args.pool, args.runs)
         save_job_tracking([{
             "job_id": job.id,

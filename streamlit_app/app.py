@@ -1,13 +1,13 @@
 """
-ML Cost Estimator - Streamlit in Snowflake App
+ML Cost Estimator — Streamlit App
 
-Predicts training and inference cost for Snowflake ML workloads.
-Target audience: Sales Engineers estimating customer ML costs.
+Works both in Snowflake (SiS) and locally.
+Local: SNOWFLAKE_CONNECTION_NAME=eudemo streamlit run streamlit_app/app.py
 """
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
-from snowflake.snowpark.context import get_active_session
 
 st.set_page_config(page_title="ML Cost Estimator", page_icon="$", layout="wide")
 
@@ -25,87 +25,102 @@ POOL_DISPLAY = {
     "CPU_X64_SL_TEST": "SL  | 14 vCPU, 54 GB  |  0.48 cr/hr",
 }
 
-RETRAIN_FREQ_MULTIPLIERS = {
-    "One-time": 1,
-    "Monthly": 12,
-    "Weekly": 52,
-    "Daily": 365,
+MONTHLY_TRAIN_RUNS = {
+    "One-time": 0,
+    "Monthly": 1,
+    "Weekly": 4.33,
+    "Daily": 30,
 }
-
-TASK_TYPES_COMING_SOON = ["Regression", "Clustering", "Anomaly Detection"]
 
 
 @st.cache_resource
 def get_session():
-    return get_active_session()
+    try:
+        from snowflake.snowpark.context import get_active_session
+        return get_active_session()
+    except Exception:
+        from snowflake.snowpark import Session
+        conn_name = os.getenv("SNOWFLAKE_CONNECTION_NAME", "eudemo")
+        session = Session.builder.config("connection_name", conn_name).create()
+        session.sql("USE DATABASE ML_ESTIMATOR").collect()
+        session.sql("USE SCHEMA PUBLIC").collect()
+        return session
 
 
 @st.cache_data(ttl=300)
 def load_training_data():
-    session = get_session()
-    return session.table("ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS").to_pandas()
+    return get_session().table("ML_ESTIMATOR.PUBLIC.ML_BENCHMARK_RESULTS").to_pandas()
 
 
 @st.cache_data(ttl=300)
 def load_inference_data():
-    session = get_session()
     try:
-        return session.table("ML_ESTIMATOR.PUBLIC.ML_INFERENCE_RESULTS").to_pandas()
+        return get_session().table("ML_ESTIMATOR.PUBLIC.ML_INFERENCE_RESULTS").to_pandas()
     except Exception:
         return pd.DataFrame()
 
 
 @st.cache_resource
-def load_training_model():
+def build_training_estimator():
     from snowflake.ml.registry import Registry
-    session = get_session()
-    registry = Registry(session, database_name="ML_ESTIMATOR", schema_name="PUBLIC")
-    return registry.get_model("ML_COST_ESTIMATOR").default
+    from sklearn.preprocessing import LabelEncoder
+    mv = Registry(get_session(), database_name="ML_ESTIMATOR", schema_name="PUBLIC").get_model("ML_COST_ESTIMATOR").default
+    model = mv.load(force=True)
+    df = load_training_data()
+    df = df[df["DURATION_SECONDS"] > 0]
+    return model, {
+        "model": LabelEncoder().fit(df["MODEL_CLASS"]),
+        "pool": LabelEncoder().fit(df["COMPUTE_POOL"]),
+        "task": LabelEncoder().fit(df["TASK_TYPE"]),
+    }
 
 
 @st.cache_resource
-def load_inference_model():
+def build_inference_estimator():
     from snowflake.ml.registry import Registry
-    session = get_session()
-    registry = Registry(session, database_name="ML_ESTIMATOR", schema_name="PUBLIC")
-    return registry.get_model("ML_INFERENCE_ESTIMATOR").default
-
-
-def predict_duration(model, df_benchmark, model_class, task_type, pool, feature_name, feature_val, row_name, row_val):
     from sklearn.preprocessing import LabelEncoder
-    try:
-        le_model = LabelEncoder().fit(df_benchmark["MODEL_CLASS"].unique())
-        le_pool = LabelEncoder().fit(df_benchmark["COMPUTE_POOL"].unique())
-        le_task = LabelEncoder().fit(df_benchmark["TASK_TYPE"].unique())
+    mv = Registry(get_session(), database_name="ML_ESTIMATOR", schema_name="PUBLIC").get_model("ML_INFERENCE_ESTIMATOR").default
+    model = mv.load(force=True)
+    df = load_inference_data()
+    if len(df) == 0:
+        return None
+    df = df[df["PREDICT_DURATION_SECONDS"] > 0]
+    return model, {
+        "model": LabelEncoder().fit(df["MODEL_CLASS"]),
+        "pool": LabelEncoder().fit(df["COMPUTE_POOL"]),
+        "task": LabelEncoder().fit(df["TASK_TYPE"]),
+    }
 
-        input_df = pd.DataFrame({
-            "MODEL_ENCODED": [le_model.transform([model_class])[0]],
-            "POOL_ENCODED": [le_pool.transform([pool])[0]],
-            "TASK_ENCODED": [le_task.transform([task_type])[0]],
+
+def predict_local(estimator_result, model_class, pool, task_type, feature_name, feature_val, row_name, row_val):
+    if estimator_result is None:
+        return None
+    try:
+        model, enc = estimator_result
+        X = pd.DataFrame({
+            "MODEL_ENCODED": [enc["model"].transform([model_class])[0]],
+            "POOL_ENCODED": [enc["pool"].transform([pool])[0]],
+            "TASK_ENCODED": [enc["task"].transform([task_type])[0]],
             feature_name: [feature_val],
             row_name: [row_val],
         })
-
-        result = model.run(input_df, function_name="predict")
-        return float(result.iloc[0, -1])
-    except Exception as e:
-        st.warning(f"Model prediction failed: {e}")
+        return float(model.predict(X)[0])
+    except Exception:
         return None
 
 
-def fallback_estimate(df, model_class, pool, row_val, col_name="N_ROWS_SAMPLED"):
+def fallback_estimate(df, model_class, pool, row_val, duration_col, row_col):
     subset = df[
         (df["MODEL_CLASS"] == model_class) &
         (df["COMPUTE_POOL"] == pool) &
-        (df.iloc[:, -3] > 0)
+        (df[duration_col] > 0)
     ]
     if len(subset) == 0:
         return None
-    target_col = "DURATION_SECONDS" if "DURATION_SECONDS" in subset.columns else "PREDICT_DURATION_SECONDS"
-    row_col = "N_ROWS_SAMPLED" if "N_ROWS_SAMPLED" in subset.columns else "N_PREDICT_ROWS"
-    avg_per_row = subset[target_col].mean() / subset[row_col].mean()
-    return avg_per_row * row_val
+    return (subset[duration_col].mean() / subset[row_col].mean()) * row_val
 
+
+# --- Sidebar ---
 
 with st.sidebar:
     st.header("Settings")
@@ -115,8 +130,10 @@ with st.sidebar:
     )
     st.divider()
     st.caption("Beta: Classification models only")
-    for tt in TASK_TYPES_COMING_SOON:
+    for tt in ["Regression", "Clustering", "Anomaly Detection"]:
         st.caption(f"Coming soon: {tt}")
+
+# --- Main ---
 
 st.title("ML Cost Estimator")
 st.markdown("Estimate training and inference costs for Snowflake ML workloads")
@@ -128,12 +145,14 @@ except Exception as e:
     st.error(f"Failed to load data: {e}")
     st.stop()
 
+with st.spinner("Loading models..."):
+    train_est = build_training_estimator()
+    infer_est = build_inference_estimator()
+
 available_models = sorted(df_train[df_train["DURATION_SECONDS"] > 0]["MODEL_CLASS"].unique().tolist()) if len(df_train) > 0 else []
 pool_options = list(POOL_DISPLAY.keys())
 
-col_config, col_results = st.columns([3, 2])
-
-with col_config:
+with st.container():
     st.subheader("Workload Configuration")
 
     c1, c2 = st.columns(2)
@@ -147,65 +166,65 @@ with col_config:
         )
         compute_pool = pool_options[pool_idx]
 
-    st.markdown("**Training Parameters**")
-    tc1, tc2 = st.columns(2)
-    with tc1:
-        train_rows = st.number_input("Training Rows", min_value=1_000, max_value=10_000_000, value=200_000, step=10_000, format="%d")
-    with tc2:
-        train_cols = st.number_input("Training Columns", min_value=5, max_value=500, value=50, step=5)
-
-    retrain_freq = st.selectbox("Retraining Frequency", list(RETRAIN_FREQ_MULTIPLIERS.keys()), index=0)
-
-    st.markdown("**Inference Parameters**")
-    ic1, ic2 = st.columns(2)
-    with ic1:
-        batch_size = st.number_input("Batch Size (rows)", min_value=100, max_value=1_000_000, value=10_000, step=1_000, format="%d")
-    with ic2:
-        infer_cols = st.number_input("Inference Columns", min_value=5, max_value=500, value=50, step=5, key="inf_cols")
-
-    batches_per_day = st.number_input("Batches per Day", min_value=0, max_value=1000, value=10, step=1)
-
-    hp_enabled = st.checkbox("Include HP tuning estimate", value=False)
+    include_training = st.checkbox("Include Training Cost", value=True)
+    train_rows = 200_000
+    train_cols = 50
+    retrain_freq = "One-time"
+    hp_enabled = False
     hp_trials = 20
-    if hp_enabled:
-        hp_trials = st.slider("HP trials", min_value=5, max_value=200, value=20, step=5)
+    if include_training:
+        tc1, tc2 = st.columns(2)
+        with tc1:
+            train_rows = st.number_input("Training Rows", min_value=1_000, max_value=10_000_000, value=200_000, step=10_000, format="%d")
+        with tc2:
+            train_cols = st.number_input("Training Columns", min_value=5, max_value=500, value=50, step=5)
+        retrain_freq = st.selectbox("Retraining Frequency", list(MONTHLY_TRAIN_RUNS.keys()), index=0)
+        hp_enabled = st.checkbox("Include HP tuning estimate", value=False)
+        if hp_enabled:
+            hp_trials = st.number_input("HP Trials", min_value=5, max_value=200, value=20, step=5, format="%d")
 
-with col_results:
+    include_inference = st.checkbox("Include Inference Cost", value=True)
+    batch_size = 10_000
+    infer_cols = train_cols
+    batches_per_day = 10
+    if include_inference:
+        ic1, ic2 = st.columns(2)
+        with ic1:
+            batch_size = st.number_input("Batch Size (rows)", min_value=100, max_value=1_000_000, value=10_000, step=1_000, format="%d")
+        with ic2:
+            infer_cols = st.number_input("Inference Columns", min_value=5, max_value=500, value=train_cols, step=5, key="inf_cols")
+        batches_per_day = st.number_input("Batches per Day", min_value=0, max_value=1000, value=10, step=1)
+        if infer_cols != train_cols:
+            st.markdown(
+                f":red[**Warning:** Inference columns ({infer_cols}) ≠ Training columns ({train_cols}). "
+                f"Models typically expect the same number of features at inference as during training.]"
+            )
+
+st.divider()
+if st.button("Estimate Cost", type="primary", use_container_width=True):
     st.subheader("Cost Estimate")
+    train_duration = None
+    infer_duration = None
 
-    if st.button("Estimate", type="primary", use_container_width=True):
-        train_duration = None
-        infer_duration = None
+    if include_training:
+        train_duration = predict_local(
+            train_est, model_class, compute_pool, "classification",
+            "N_COLS_SAMPLED", train_cols, "N_ROWS_SAMPLED", train_rows
+        )
+        if train_duration is None:
+            train_duration = fallback_estimate(df_train, model_class, compute_pool, train_rows, "DURATION_SECONDS", "N_ROWS_SAMPLED")
 
-        with st.spinner("Predicting training cost..."):
-            try:
-                training_model = load_training_model()
-                train_duration = predict_duration(
-                    training_model, df_train, model_class, "classification", compute_pool,
-                    "N_COLS_SAMPLED", train_cols, "N_ROWS_SAMPLED", train_rows
-                )
-            except Exception:
-                pass
+    if include_inference:
+        infer_duration = predict_local(
+            infer_est, model_class, compute_pool, "classification",
+            "N_COLS", infer_cols, "N_PREDICT_ROWS", batch_size
+        )
+        if infer_duration is None:
+            infer_duration = fallback_estimate(df_infer, model_class, compute_pool, batch_size, "PREDICT_DURATION_SECONDS", "N_PREDICT_ROWS")
 
-            if train_duration is None:
-                train_duration = fallback_estimate(df_train, model_class, compute_pool, train_rows)
+    pool_cr_rate = CREDIT_RATES.get(compute_pool, 0.12)
 
-        with st.spinner("Predicting inference cost..."):
-            if len(df_infer) > 0:
-                try:
-                    inference_model = load_inference_model()
-                    infer_duration = predict_duration(
-                        inference_model, df_infer, model_class, "classification", compute_pool,
-                        "N_COLS", infer_cols, "N_PREDICT_ROWS", batch_size
-                    )
-                except Exception:
-                    pass
-
-                if infer_duration is None:
-                    infer_duration = fallback_estimate(df_infer, model_class, compute_pool, batch_size)
-
-        pool_cr_rate = CREDIT_RATES.get(compute_pool, 0.12)
-
+    if include_training:
         st.markdown("---")
         st.markdown("**Training (single run)**")
         if train_duration is not None and train_duration > 0:
@@ -225,13 +244,13 @@ with col_results:
             m3.metric("Cost", f"${train_cost:.2f}")
 
             if hp_enabled:
-                hp_dur = train_duration * hp_trials
                 hp_credits = train_credits * hp_trials
                 hp_cost = hp_credits * credit_rate_dollars
-                st.caption(f"With HP tuning ({hp_trials} trials): {hp_dur/60:.1f}m | {hp_credits:.4f} cr | ${hp_cost:.2f}")
+                st.caption(f"With HP tuning ({hp_trials} trials): {train_duration * hp_trials / 60:.1f}m | {hp_credits:.4f} cr | ${hp_cost:.2f}")
         else:
             st.warning("No training estimate available for this configuration")
 
+    if include_inference:
         st.markdown("---")
         st.markdown("**Inference (single batch)**")
         if infer_duration is not None and infer_duration > 0:
@@ -252,64 +271,56 @@ with col_results:
         else:
             st.info("Inference benchmarks loading... check back soon.")
 
-        st.markdown("---")
-        st.markdown("**Monthly Projection**")
+    st.markdown("---")
+    st.markdown("**Monthly Projection**")
 
-        freq_mult = RETRAIN_FREQ_MULTIPLIERS.get(retrain_freq, 1)
-        monthly_train_runs = freq_mult / 12 if freq_mult > 1 else (1 if retrain_freq == "One-time" else 0)
-        if retrain_freq == "Monthly":
-            monthly_train_runs = 1
-        elif retrain_freq == "Weekly":
-            monthly_train_runs = 4.33
-        elif retrain_freq == "Daily":
-            monthly_train_runs = 30
+    monthly_train_runs = MONTHLY_TRAIN_RUNS.get(retrain_freq, 0)
+    monthly_batches = batches_per_day * 30
 
-        monthly_batches = batches_per_day * 30
+    monthly_train_credits = 0
+    monthly_infer_credits = 0
 
-        monthly_train_credits = 0
-        monthly_infer_credits = 0
+    if train_duration and train_duration > 0:
+        single_train_cr = (train_duration / 3600) * pool_cr_rate
+        if hp_enabled:
+            single_train_cr *= hp_trials
+        monthly_train_credits = single_train_cr * monthly_train_runs
 
-        if train_duration and train_duration > 0:
-            single_train_cr = (train_duration / 3600) * pool_cr_rate
-            if hp_enabled:
-                single_train_cr *= hp_trials
-            monthly_train_credits = single_train_cr * monthly_train_runs
+    if infer_duration and infer_duration > 0:
+        single_infer_cr = (infer_duration / 3600) * pool_cr_rate
+        monthly_infer_credits = single_infer_cr * monthly_batches
 
-        if infer_duration and infer_duration > 0:
-            single_infer_cr = (infer_duration / 3600) * pool_cr_rate
-            monthly_infer_credits = single_infer_cr * monthly_batches
+    total_monthly_credits = monthly_train_credits + monthly_infer_credits
+    total_monthly_cost = total_monthly_credits * credit_rate_dollars
 
-        total_monthly_credits = monthly_train_credits + monthly_infer_credits
-        total_monthly_cost = total_monthly_credits * credit_rate_dollars
+    m1, m2 = st.columns(2)
+    m1.metric("Monthly Credits", f"{total_monthly_credits:.2f}")
+    m2.metric("Monthly Cost", f"${total_monthly_cost:.2f}")
 
-        m1, m2 = st.columns(2)
-        m1.metric("Monthly Credits", f"{total_monthly_credits:.2f}")
-        m2.metric("Monthly Cost", f"${total_monthly_cost:.2f}")
+    breakdown = pd.DataFrame({
+        "Component": ["Training", "Inference", "Total"],
+        "Monthly Credits": [
+            round(monthly_train_credits, 4),
+            round(monthly_infer_credits, 4),
+            round(total_monthly_credits, 4),
+        ],
+        "Monthly Cost ($)": [
+            round(monthly_train_credits * credit_rate_dollars, 2),
+            round(monthly_infer_credits * credit_rate_dollars, 2),
+            round(total_monthly_cost, 2),
+        ],
+    })
+    st.dataframe(breakdown, use_container_width=True)
 
-        breakdown = pd.DataFrame({
-            "Component": ["Training", "Inference", "Total"],
-            "Monthly Credits": [
-                round(monthly_train_credits, 4),
-                round(monthly_infer_credits, 4),
-                round(total_monthly_credits, 4),
-            ],
-            "Monthly Cost ($)": [
-                round(monthly_train_credits * credit_rate_dollars, 2),
-                round(monthly_infer_credits * credit_rate_dollars, 2),
-                round(total_monthly_cost, 2),
-            ],
-        })
-        st.dataframe(breakdown, use_container_width=True, hide_index=True)
-
-        st.caption(
-            f"Training: {monthly_train_runs:.1f} runs/month | "
-            f"Inference: {monthly_batches:,} batches/month ({batches_per_day}/day x 30d) | "
-            f"Rate: ${credit_rate_dollars}/credit"
-        )
+    st.caption(
+        f"Training: {monthly_train_runs:.1f} runs/month | "
+        f"Inference: {monthly_batches:,} batches/month ({batches_per_day}/day x 30d) | "
+        f"Rate: ${credit_rate_dollars}/credit"
+    )
 
 st.divider()
 
-tab1, tab2, tab3 = st.tabs(["Data Coverage", "Analysis", "Model Info"])
+tab1, tab2, tab3 = st.tabs(["Data Coverage", "Analysis", "Compute Pool Info"])
 
 with tab1:
     st.subheader("Training Benchmark Coverage")
@@ -322,10 +333,10 @@ with tab1:
         c4.metric("Task Types", f"{success_train['TASK_TYPE'].nunique()}")
 
         st.dataframe(
-            success_train.groupby(["MODEL_CLASS", "COMPUTE_POOL"])
+            success_train.groupby(["MODEL_CLASS", "COMPUTE_POOL", "N_ROWS_SAMPLED", "N_COLS_SAMPLED"])
             .agg(runs=("DURATION_SECONDS", "count"), avg_sec=("DURATION_SECONDS", "mean"), std_sec=("DURATION_SECONDS", "std"))
             .round(2).reset_index(),
-            use_container_width=True, hide_index=True
+            use_container_width=True
         )
     else:
         st.info("Training benchmarks are running... data will appear here soon.")
@@ -345,31 +356,31 @@ with tab2:
         import plotly.express as px
         success_df = df_train[df_train["DURATION_SECONDS"] > 0]
 
+        row_options = sorted(success_df["N_ROWS_SAMPLED"].unique().tolist())
+        col_options = sorted(success_df["N_COLS_SAMPLED"].unique().tolist())
+        size_options = sorted(success_df[["N_ROWS_SAMPLED", "N_COLS_SAMPLED"]].drop_duplicates().apply(
+            lambda r: f"{int(r['N_ROWS_SAMPLED']):,} rows × {int(r['N_COLS_SAMPLED'])} cols", axis=1
+        ).tolist())
+        selected_size = st.selectbox("Dataset size", size_options, index=len(size_options) // 2)
+        sel_rows = int(selected_size.split(" rows")[0].replace(",", ""))
+        sel_cols = int(selected_size.split("× ")[1].split(" cols")[0])
+        filtered_df = success_df[
+            (success_df["N_ROWS_SAMPLED"] == sel_rows) &
+            (success_df["N_COLS_SAMPLED"] == sel_cols)
+        ]
+
         st.subheader("Training Duration by Model")
-        fig = px.box(success_df, x="MODEL_CLASS", y="DURATION_SECONDS", color="COMPUTE_POOL", log_y=True)
+        fig = px.box(filtered_df, x="MODEL_CLASS", y="DURATION_SECONDS", color="COMPUTE_POOL", log_y=True)
         fig.update_layout(xaxis_tickangle=-45, height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Duration vs Rows")
-        fig2 = px.scatter(
-            success_df, x="N_ROWS_SAMPLED", y="DURATION_SECONDS",
-            color="MODEL_CLASS", facet_col="COMPUTE_POOL", facet_col_wrap=2,
-            log_y=True
-        )
-        fig2.update_layout(height=600)
-        st.plotly_chart(fig2, use_container_width=True)
-
 with tab3:
-    st.subheader("Registered Models")
-    st.markdown("**Training Predictor**: `ML_ESTIMATOR.PUBLIC.ML_COST_ESTIMATOR`")
-    st.markdown("**Inference Predictor**: `ML_ESTIMATOR.PUBLIC.ML_INFERENCE_ESTIMATOR`")
-
     st.subheader("Compute Pool Rates")
     rates_df = pd.DataFrame([
         {"Pool": k, "Credits/Hour": v, "$/Hour": round(v * credit_rate_dollars, 2)}
         for k, v in CREDIT_RATES.items()
     ])
-    st.dataframe(rates_df, use_container_width=True, hide_index=True)
+    st.dataframe(rates_df, use_container_width=True)
 
     st.subheader("Methodology")
     st.markdown("""

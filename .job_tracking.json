@@ -1,0 +1,80 @@
+[
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.BENCHMARK_JOB_LFRV2ZV0TMLS",
+    "pool": "CPU_X64_XS_TEST",
+    "type": "training",
+    "submitted_at": "2026-03-27T18:39:34.105610"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.BENCHMARK_JOB_7M1BS952LR07",
+    "pool": "CPU_X64_S_TEST",
+    "type": "training",
+    "submitted_at": "2026-03-27T18:39:46.182282"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.BENCHMARK_JOB_1IQLL79ZWDB0X",
+    "pool": "CPU_X64_M_TEST",
+    "type": "training",
+    "submitted_at": "2026-03-27T18:39:57.931997"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.BENCHMARK_JOB_GC4332YUDXP0",
+    "pool": "CPU_X64_SL_TEST",
+    "type": "training",
+    "submitted_at": "2026-03-27T18:40:10.380556"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.INFERENCE_BENCHMARK_JOB_1RS0JTZ542MSW",
+    "pool": "CPU_X64_XS_TEST",
+    "type": "inference",
+    "submitted_at": "2026-03-27T18:49:10.894781"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.INFERENCE_BENCHMARK_JOB_6K8F7ILZFY8E",
+    "pool": "CPU_X64_S_TEST",
+    "type": "inference",
+    "submitted_at": "2026-03-27T18:49:22.856146"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.INFERENCE_BENCHMARK_JOB_VUO33K9T3L7L",
+    "pool": "CPU_X64_M_TEST",
+    "type": "inference",
+    "submitted_at": "2026-03-27T18:49:34.503922"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.INFERENCE_BENCHMARK_JOB_1OTYTBUWK4RAO",
+    "pool": "CPU_X64_SL_TEST",
+    "type": "inference",
+    "submitted_at": "2026-03-27T18:49:46.498250"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.BENCHMARK_JOB_17DDFWK6CUX5O",
+    "pool": "CPU_X64_S_TEST",
+    "type": "training",
+    "submitted_at": "2026-03-30T09:10:15.401050"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.REGRESSION_BENCHMARK_JOB_D6761574_V2O6SWKWBPYJ",
+    "pool": "CPU_X64_XS_TEST",
+    "type": "regression-training",
+    "submitted_at": "2026-04-01T20:19:51.129585"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.REGRESSION_BENCHMARK_JOB_B4F0D733_OHHRRH4KRWWG",
+    "pool": "CPU_X64_S_TEST",
+    "type": "regression-training",
+    "submitted_at": "2026-04-01T20:20:05.074947"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.REGRESSION_BENCHMARK_JOB_9DAA511C_W82WLA0J6P0Z",
+    "pool": "CPU_X64_M_TEST",
+    "type": "regression-training",
+    "submitted_at": "2026-04-01T20:20:19.077134"
+  },
+  {
+    "job_id": "ML_ESTIMATOR.PUBLIC.REGRESSION_BENCHMARK_JOB_614A3AC2_10QJ0F5BG8ZRR",
+    "pool": "CPU_X64_SL_TEST",
+    "type": "regression-training",
+    "submitted_at": "2026-04-01T20:20:32.673607"
+  }
+]
